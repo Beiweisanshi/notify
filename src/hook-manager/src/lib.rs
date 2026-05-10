@@ -223,14 +223,15 @@ fn run_resolved_windows_command(_name: &str, _args: &[&str]) -> Option<io::Resul
 }
 
 fn install_hook_script(paths: &HookInstallPaths) -> Result<(), HookManagerError> {
-    let script = fs::read_to_string(&paths.source_hook)
+    let source_bytes = fs::read(&paths.source_hook)
         .map_err(|error| HookManagerError::SourceHookRead(paths.source_hook.clone(), error))?;
-    let script_hash = sha256_hex(script.as_bytes());
+    let installed_bytes = with_utf8_bom(source_bytes);
+    let script_hash = sha256_hex(&installed_bytes);
     let current_hash = fs::read(&paths.installed_hook)
         .ok()
         .map(|bytes| sha256_hex(&bytes));
     if current_hash.as_deref() != Some(&script_hash) {
-        fs::write(&paths.installed_hook, script.as_bytes())?;
+        fs::write(&paths.installed_hook, &installed_bytes)?;
     }
 
     let manifest = json!({
@@ -245,6 +246,18 @@ fn install_hook_script(paths: &HookInstallPaths) -> Result<(), HookManagerError>
     });
     write_json_atomic(&paths.manifest, &manifest)?;
     Ok(())
+}
+
+fn with_utf8_bom(mut bytes: Vec<u8>) -> Vec<u8> {
+    const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
+    if bytes.starts_with(UTF8_BOM) {
+        return bytes;
+    }
+
+    let mut with_bom = Vec::with_capacity(UTF8_BOM.len() + bytes.len());
+    with_bom.extend_from_slice(UTF8_BOM);
+    with_bom.append(&mut bytes);
+    with_bom
 }
 
 fn install_json_hooks(
@@ -585,5 +598,13 @@ mod tests {
 
         assert!(text.contains("hooks = true"));
         assert!(!text.contains("codex_hooks"));
+    }
+
+    #[test]
+    fn installed_hook_bytes_include_utf8_bom() {
+        let bytes = with_utf8_bom("中文通知".as_bytes().to_vec());
+
+        assert!(bytes.starts_with(b"\xEF\xBB\xBF"));
+        assert_eq!(&bytes[3..], "中文通知".as_bytes());
     }
 }

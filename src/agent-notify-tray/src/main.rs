@@ -17,6 +17,26 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
+#[cfg(windows)]
+const WINDOWS_APP_NAME: &str = "智能任务通知";
+#[cfg(windows)]
+const WINDOWS_LEGACY_APP_NAME: &str = "Agent Notify";
+#[cfg(windows)]
+const WINDOWS_ICON_PNG: &[u8] = include_bytes!("../../../assets/agent-notify-icon.png");
+#[cfg(windows)]
+const WINDOWS_ICON_ICO: &[u8] = include_bytes!("../../../assets/agent-notify-icon.ico");
+
+#[cfg(windows)]
+#[derive(Debug, Clone)]
+struct WindowsIconAssets {
+    png: String,
+    ico: String,
+}
+
+#[cfg(windows)]
+static WINDOWS_ICON_ASSETS: std::sync::OnceLock<Option<WindowsIconAssets>> =
+    std::sync::OnceLock::new();
+
 #[derive(Debug, Parser)]
 #[command(name = "agent-notify-tray")]
 #[command(about = "Local AgentNotify backend. Tauri can host the same core flow later.")]
@@ -77,10 +97,8 @@ async fn serve() -> Result<()> {
         }
     }
     #[cfg(windows)]
-    if !ensure_windows_toast_registration() {
-        eprintln!(
-            "toast registration warning: failed to register Agent Notify Start Menu shortcut"
-        );
+    if !ensure_windows_toast_registration(windows_icon_assets().map(|assets| assets.ico.as_str())) {
+        eprintln!("toast registration warning: failed to register Windows Start Menu shortcut");
     }
 
     let token = read_token(&config).context("failed to read auth token")?;
@@ -200,19 +218,26 @@ fn show_windows_toast(view: &agent_notify_core::NotificationView) -> bool {
     let body = format!(
         "{}{}{}",
         view.body,
-        if view.detail.is_some() { " - " } else { "" },
+        if view.detail.is_some() { " · " } else { "" },
         view.detail.as_deref().unwrap_or_default()
     );
+    let icon_path = windows_icon_assets()
+        .map(|assets| assets.png.as_str())
+        .unwrap_or_default();
     let script = r#"
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null
 
-$appName = "Agent Notify"
+$appName = $env:AGENT_NOTIFY_WINDOWS_APP_NAME
+$legacyAppName = $env:AGENT_NOTIFY_WINDOWS_LEGACY_APP_NAME
 $app = Get-StartApps | Where-Object { $_.Name -eq $appName } | Select-Object -First 1
+if ($null -eq $app -and -not [string]::IsNullOrWhiteSpace($legacyAppName)) {
+    $app = Get-StartApps | Where-Object { $_.Name -eq $legacyAppName } | Select-Object -First 1
+}
 if ($null -eq $app) {
     $powerShellApp = Get-StartApps | Where-Object { $_.Name -eq "Windows PowerShell" } | Select-Object -First 1
     if ($null -eq $powerShellApp) {
-        throw "Agent Notify is not registered in Start Menu and Windows PowerShell fallback was not found"
+        throw "$appName is not registered in Start Menu and Windows PowerShell fallback was not found"
     }
     $appId = $powerShellApp.AppID
 } else {
@@ -228,7 +253,13 @@ function Escape-ToastText([string]$value) {
 
 $title = Escape-ToastText $env:AGENT_NOTIFY_TOAST_TITLE
 $body = Escape-ToastText $env:AGENT_NOTIFY_TOAST_BODY
-$template = "<toast><visual><binding template=""ToastGeneric""><text>$title</text><text>$body</text></binding></visual></toast>"
+$iconXml = ""
+$iconPath = $env:AGENT_NOTIFY_TOAST_ICON
+if (-not [string]::IsNullOrWhiteSpace($iconPath) -and (Test-Path -LiteralPath $iconPath)) {
+    $iconUri = Escape-ToastText ([Uri]::new($iconPath).AbsoluteUri)
+    $iconXml = "<image placement=""appLogoOverride"" hint-crop=""circle"" src=""$iconUri""/>"
+}
+$template = "<toast><visual><binding template=""ToastGeneric"">$iconXml<text>$title</text><text>$body</text></binding></visual></toast>"
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $xml.LoadXml($template)
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
@@ -237,14 +268,65 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
     run_windows_powershell(
         script,
         &[
+            ("AGENT_NOTIFY_WINDOWS_APP_NAME", WINDOWS_APP_NAME),
+            (
+                "AGENT_NOTIFY_WINDOWS_LEGACY_APP_NAME",
+                WINDOWS_LEGACY_APP_NAME,
+            ),
             ("AGENT_NOTIFY_TOAST_TITLE", view.title.as_str()),
             ("AGENT_NOTIFY_TOAST_BODY", body.as_str()),
+            ("AGENT_NOTIFY_TOAST_ICON", icon_path),
         ],
     )
 }
 
 #[cfg(windows)]
-fn ensure_windows_toast_registration() -> bool {
+fn windows_icon_assets() -> Option<&'static WindowsIconAssets> {
+    WINDOWS_ICON_ASSETS
+        .get_or_init(ensure_windows_icon_assets)
+        .as_ref()
+}
+
+#[cfg(windows)]
+fn ensure_windows_icon_assets() -> Option<WindowsIconAssets> {
+    use std::fs;
+
+    let assets_dir = agent_notify_core::agent_notify_dir().join("assets");
+    if let Err(error) = fs::create_dir_all(&assets_dir) {
+        eprintln!("toast icon warning: failed to create icon assets directory: {error}");
+        return None;
+    }
+
+    let png_path = assets_dir.join("agent-notify-icon.png");
+    let ico_path = assets_dir.join("agent-notify-icon.ico");
+    if let Err(error) = write_embedded_asset(&png_path, WINDOWS_ICON_PNG) {
+        eprintln!("toast icon warning: failed to write png icon asset: {error}");
+        return None;
+    }
+    if let Err(error) = write_embedded_asset(&ico_path, WINDOWS_ICON_ICO) {
+        eprintln!("toast icon warning: failed to write ico icon asset: {error}");
+        return None;
+    }
+
+    Some(WindowsIconAssets {
+        png: png_path.display().to_string(),
+        ico: ico_path.display().to_string(),
+    })
+}
+
+#[cfg(windows)]
+fn write_embedded_asset(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::fs;
+
+    let is_current = fs::read(path).is_ok_and(|current| current == bytes);
+    if !is_current {
+        fs::write(path, bytes)?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn ensure_windows_toast_registration(icon_path: Option<&str>) -> bool {
     let target = match std::env::current_exe() {
         Ok(path) => path.display().to_string(),
         Err(error) => {
@@ -255,8 +337,11 @@ fn ensure_windows_toast_registration() -> bool {
     let script = r#"
 $ErrorActionPreference = "Stop"
 $target = $env:AGENT_NOTIFY_EXE_PATH
+$appName = $env:AGENT_NOTIFY_WINDOWS_APP_NAME
+$legacyAppName = $env:AGENT_NOTIFY_WINDOWS_LEGACY_APP_NAME
+$iconPath = $env:AGENT_NOTIFY_SHORTCUT_ICON
 if ([string]::IsNullOrWhiteSpace($target) -or -not (Test-Path -LiteralPath $target)) {
-    throw "Agent Notify executable was not found: $target"
+    throw "$appName executable was not found: $target"
 }
 
 $shortcutDir = [Environment]::GetFolderPath("Programs")
@@ -264,27 +349,49 @@ if ([string]::IsNullOrWhiteSpace($shortcutDir)) {
     throw "Current user Start Menu Programs folder was not found"
 }
 
-$shortcutPath = Join-Path $shortcutDir "Agent Notify.lnk"
+$shortcutPath = Join-Path $shortcutDir "$appName.lnk"
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = $target
 $shortcut.Arguments = "serve"
 $shortcut.WorkingDirectory = Split-Path -Parent $target
-$shortcut.IconLocation = "$target,0"
-$shortcut.Description = "Agent Notify notification backend"
+if (-not [string]::IsNullOrWhiteSpace($iconPath) -and (Test-Path -LiteralPath $iconPath)) {
+    $shortcut.IconLocation = $iconPath
+} else {
+    $shortcut.IconLocation = "$target,0"
+}
+$shortcut.Description = "本地 AI 任务通知后台"
 $shortcut.Save()
 
+if (-not [string]::IsNullOrWhiteSpace($legacyAppName) -and $legacyAppName -ne $appName) {
+    $legacyShortcutPath = Join-Path $shortcutDir "$legacyAppName.lnk"
+    if (Test-Path -LiteralPath $legacyShortcutPath) {
+        Remove-Item -LiteralPath $legacyShortcutPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 for ($i = 0; $i -lt 10; $i++) {
-    $app = Get-StartApps | Where-Object { $_.Name -eq "Agent Notify" } | Select-Object -First 1
+    $app = Get-StartApps | Where-Object { $_.Name -eq $appName } | Select-Object -First 1
     if ($null -ne $app) {
         return
     }
     Start-Sleep -Milliseconds 200
 }
 
-throw "Agent Notify Start Menu shortcut was created, but Windows did not return an AppID"
+throw "$appName Start Menu shortcut was created, but Windows did not return an AppID"
 "#;
-    run_windows_powershell(script, &[("AGENT_NOTIFY_EXE_PATH", target.as_str())])
+    run_windows_powershell(
+        script,
+        &[
+            ("AGENT_NOTIFY_EXE_PATH", target.as_str()),
+            ("AGENT_NOTIFY_WINDOWS_APP_NAME", WINDOWS_APP_NAME),
+            (
+                "AGENT_NOTIFY_WINDOWS_LEGACY_APP_NAME",
+                WINDOWS_LEGACY_APP_NAME,
+            ),
+            ("AGENT_NOTIFY_SHORTCUT_ICON", icon_path.unwrap_or_default()),
+        ],
+    )
 }
 
 #[cfg(windows)]

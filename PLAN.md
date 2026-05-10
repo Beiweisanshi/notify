@@ -13,7 +13,7 @@
 - `agent-notify-core`：统一事件模型、Claude/Codex hook payload 映射、脱敏、稳定 `eventId`、通知策略、30 秒去重、运行时配置和 token 文件。
 - `agent-notify`：当前只支持 `agent-notify emit --stdin`，从 stdin 读取 JSON、去除 UTF-8 BOM、校验事件后 POST 到 `/events`；失败默认退出 `0`，`AGENT_NOTIFY_STRICT` 才暴露错误。`AGENT_NOTIFY_ENDPOINT`、`AGENT_NOTIFY_TOKEN` 可覆盖默认 endpoint/token。
 - `agent-notify-tray`：当前是 Axum localhost 后台，不是完整 Tauri 托盘 UI。支持 `serve`、`check-hooks`、`repair-hooks`，提供 `POST /events`、`GET /sessions`、`POST /focus/{sessionId}`，所有路由都要求 Bearer token。`AGENT_NOTIFY_HOME` 可覆盖运行时根目录。
-- Windows Toast：当前通过 PowerShell Windows Runtime Toast 展示标题、正文和详情；`agent-notify-tray serve` 会创建/更新当前用户的 `Agent Notify.lnk`，并用 `Get-StartApps` 解析出的 AppID 发送 Toast；未实现点击回调、deep link、activation nonce 或 Toast 按钮。
+- Windows Toast：当前通过 PowerShell Windows Runtime Toast 展示中文标题、正文、详情和自定义图标；`agent-notify-tray serve` 会创建/更新当前用户的 `智能任务通知.lnk`，并用 `Get-StartApps` 解析出的 AppID 发送 Toast；未实现点击回调、deep link、activation nonce 或 Toast 按钮。
 - `/focus/{sessionId}`：当前只在 session 里有 HWND 时尝试 `ShowWindow` + `SetForegroundWindow`；PID、父 PID、进程树、窗口标题 fallback 和 session 详情页未实现。
 - Hook Manager：已复制运行时 hook、生成 manifest、备份并合并 Claude/Codex 用户级配置、启用 Codex `hooks` feature，并写入展开后的绝对 hook 路径。ACL 加固、备份保留清理、失败自动回滚恢复和真实触发验证仍未实现。
 - `agentrun`、完整 Tauri 托盘 UI、运行时监听开关、静音入口和 session 面板仍是后续计划。
@@ -31,7 +31,7 @@
 agent-notify-tray 启动
         |
         | 自动检查 / 安装 / 修复 hooks
-        | 注册当前用户 Agent Notify Start Menu AppID
+        | 注册当前用户 智能任务通知 Start Menu AppID 和图标
         v
 Claude Code hook / Codex hook
         |
@@ -506,8 +506,9 @@ Authorization: Bearer <AGENT_NOTIFY_TOKEN>
 当前实现：
 
 - `agent-notify-tray` 后台直接调用 PowerShell Windows Runtime Toast。
-- 启动时创建或更新 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Agent Notify.lnk`，发送时优先使用 `Get-StartApps` 返回的 `Agent Notify` AppID。
-- Toast 只展示标题、正文和详情，没有点击回调。
+- 启动时创建或更新 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\智能任务通知.lnk`，并写入 `%LOCALAPPDATA%\AgentNotify\assets\agent-notify-icon.png` / `.ico`。
+- 发送时优先使用 `Get-StartApps` 返回的 `智能任务通知` AppID，并用 `appLogoOverride` 展示自定义图标。
+- Toast 只展示中文标题、正文和详情，没有点击回调。
 - session 状态表只在内存中维护，可通过 `GET /sessions` 查询。
 
 通知内容：
@@ -1020,7 +1021,7 @@ Hook Manager 会写入 Claude/Codex 用户级配置。解决方式：
 
 Windows 桌面程序需要正确注册 AUMID/协议回调。解决方式：
 
-- 当前后端 MVP 已通过当前用户 Start Menu 快捷方式让 Windows 分配 `Agent Notify` AppID，用于展示 Toast。
+- 当前后端 MVP 已通过当前用户 Start Menu 快捷方式让 Windows 分配 `智能任务通知` AppID，用于展示中文 Toast 和自定义图标。
 - 完整产品 MVP 使用通知主体点击 + `agent-notify://focus?activationId=...` deep link；当前未实现。
 - Toast 按钮回调不进入 MVP，除非切换到原生 Windows Toast/AUMID/activation arguments。
 

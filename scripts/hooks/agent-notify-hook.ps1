@@ -357,13 +357,13 @@ function Get-AgentNotifyStateLabel {
     param([string]$EventType)
 
     switch ($EventType) {
-        'task.started' { return 'session started' }
-        'task.completed' { return 'task completed' }
-        'task.failed' { return 'execution failed' }
-        'user.confirmation_required' { return 'needs confirmation' }
-        'user.input_required' { return 'waiting for input' }
-        'tool.blocked' { return 'execution blocked' }
-        default { return 'session updated' }
+        'task.started' { return '会话开始' }
+        'task.completed' { return '任务完成' }
+        'task.failed' { return '执行失败' }
+        'user.confirmation_required' { return '需要确认' }
+        'user.input_required' { return '等待输入' }
+        'tool.blocked' { return '执行受阻' }
+        default { return '会话更新' }
     }
 }
 
@@ -381,25 +381,41 @@ function Get-AgentNotifyDetail {
     ))
 
     switch ($EventType) {
-        'task.started' { return 'Session started.' }
+        'task.started' { return '会话已开始。' }
         'task.completed' {
             if ($null -ne $exitCode) {
-                return "Exit code $exitCode."
+                return "退出码 $exitCode。"
             }
 
-            return 'Task completed.'
+            return '任务已完成。'
         }
         'task.failed' {
             if ($null -ne $exitCode) {
-                return "Execution failed with exit code $exitCode."
+                return "执行失败，退出码 $exitCode。"
             }
 
-            return 'Execution failed; details hidden.'
+            return '执行失败，详情已隐藏。'
         }
-        'tool.blocked' { return 'Permission, sandbox, or tool call blocked.' }
-        'user.confirmation_required' { return 'Permission request; arguments hidden.' }
-        'user.input_required' { return 'Waiting for your next input; details hidden.' }
-        default { return 'Session status updated.' }
+        'tool.blocked' { return '权限、沙箱或工具调用被阻止。' }
+        'user.confirmation_required' { return '工具请求确认，参数已隐藏。' }
+        'user.input_required' { return '等待你的下一步输入，详情已隐藏。' }
+        default { return '会话状态已更新。' }
+    }
+}
+
+function Get-AgentNotifyToolLabel {
+    param([string]$Tool)
+
+    switch ($Tool) {
+        'claude' { return 'Claude' }
+        'codex' { return 'Codex' }
+        default {
+            if ([string]::IsNullOrWhiteSpace($Tool) -or $Tool -eq 'unknown') {
+                return '任务'
+            }
+
+            return (Get-Culture).TextInfo.ToTitleCase($Tool)
+        }
     }
 }
 
@@ -615,23 +631,23 @@ function New-AgentNotifyEvent {
 
     $eventType = Resolve-AgentNotifyEventType -Tool $tool -HookEvent $hookEvent -ExplicitEvent $explicitEvent -Payload $Payload
     $severity = Get-AgentNotifySeverity -EventType $eventType
-    $toolTitle = (Get-Culture).TextInfo.ToTitleCase($tool)
+    $toolTitle = Get-AgentNotifyToolLabel -Tool $tool
     $stateLabel = Get-AgentNotifyStateLabel -EventType $eventType
 
     $detail = Limit-AgentNotifyText -Text (Get-AgentNotifyDetail -EventType $eventType -Payload $Payload) -MaxLength 160
-    $bodyAction = 'click to return terminal'
+    $bodyAction = '点击返回终端'
     if ($eventType -eq 'user.input_required') {
-        $bodyAction = 'needs your next step'
+        $bodyAction = '需要你的下一步'
     }
     elseif ($eventType -eq 'task.completed') {
-        $bodyAction = 'click to view result'
+        $bodyAction = '点击查看结果'
     }
     elseif ($eventType -eq 'task.started' -or $eventType -eq 'heartbeat') {
-        $bodyAction = 'session is active'
+        $bodyAction = '会话运行中'
     }
 
     $messageTitle = Limit-AgentNotifyText -Text "$toolTitle $stateLabel" -MaxLength 120
-    $messageBody = Limit-AgentNotifyText -Text "$projectName - current session - $bodyAction" -MaxLength 160
+    $messageBody = Limit-AgentNotifyText -Text "$projectName · 当前会话 · $bodyAction" -MaxLength 160
 
     $currentParentPid = Get-AgentNotifyParentPid -ProcessId $PID
     $payloadPid = Get-AgentNotifyInt (Get-AgentNotifyFirstScalar -Payload $Payload -Paths @(

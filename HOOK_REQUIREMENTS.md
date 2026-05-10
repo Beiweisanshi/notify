@@ -8,7 +8,7 @@
 
 - `agent-notify-hook.ps1` 读取 stdin、参数和环境变量，生成统一事件，并通过 `agent-notify emit --stdin` 转发。
 - `agent-notify emit --stdin` 读取事件 JSON，校验后用 Bearer token POST 到本地后台 `/events`。
-- `agent-notify-tray` 当前是 Axum localhost 后台，提供 `/events`、`/sessions`、`/focus/{sessionId}`，所有路由均鉴权；`serve` 会创建/更新当前用户 `Agent Notify.lnk`，并通过 Windows Start Menu AppID 发送 Toast。
+- `agent-notify-tray` 当前是 Axum localhost 后台，提供 `/events`、`/sessions`、`/focus/{sessionId}`，所有路由均鉴权；`serve` 会创建/更新当前用户 `智能任务通知.lnk` 和图标资源，并通过 Windows Start Menu AppID 发送中文 Toast。
 - Hook Manager 会复制运行时 hook、生成 manifest、备份并合并 Claude/Codex 用户级配置，并把 hook 命令写成当前用户的绝对路径。
 
 当前尚未实现完整 Tauri 托盘 UI、Toast 点击 deep link、activation nonce、PID/标题 fallback、ACL 加固、备份保留清理和自动回滚恢复。
@@ -21,6 +21,9 @@
 scripts/hooks/agent-notify-hook.ps1
 scripts/hooks/claude-hook.template.json
 scripts/hooks/codex-hook.template.json
+assets/agent-notify-icon.svg
+assets/agent-notify-icon.png
+assets/agent-notify-icon.ico
 src/hook-manager/
 src/agent-notify-core/
 src/agent-notify/
@@ -30,6 +33,7 @@ src/agent-notify-tray/
 - `agent-notify-hook.ps1` 是通用 hook 入口，当前由 Claude/Codex hooks 调用；普通长任务 wrapper 待实现。
 - `claude-hook.template.json` 是 Claude 用户级 hook 合并参考模板。
 - `codex-hook.template.json` 是 Codex 用户级 `hooks.json` 合并参考模板。
+- `assets/agent-notify-icon.*` 是当前 Windows Toast 和开始菜单快捷方式使用的图标资源。
 - `src/hook-manager/` 负责检测、备份、安装、修复、校验 Claude/Codex hooks。
 
 模板文件必须带本项目标识，例如 `agent-notify` 或 `managedBy = "agent-notify"`，便于后续幂等更新和卸载。当前 Hook Manager 代码会根据内部模板生成等价配置，并在安装时把 hook 路径展开为绝对路径；仓库中的 JSON 模板是参考/来源模板，不应原样把 `{{agentNotifyHookPath}}` 写入用户配置。

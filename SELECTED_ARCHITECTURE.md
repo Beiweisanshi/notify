@@ -10,7 +10,7 @@
 Codex 边界：只支持带官方 lifecycle hooks 的 Codex 最新版本
 ```
 
-当前代码实现的是该架构的后端 MVP：`agent-notify-tray` 目前是 Axum localhost 后台，负责 HTTP 事件入口、Bearer 鉴权、session 表、去重、当前用户 Start Menu AppID 注册、Windows Toast 展示、hook 检查/修复和 HWND-only `/focus/{sessionId}`。完整 Tauri 托盘 UI、Toast 点击 deep link、activation nonce、PID/标题 fallback、session 详情页和 `agentrun` 尚未实现。
+当前代码实现的是该架构的后端 MVP：`agent-notify-tray` 目前是 Axum localhost 后台，负责 HTTP 事件入口、Bearer 鉴权、session 表、去重、当前用户 Start Menu AppID/图标注册、中文 Windows Toast 展示、hook 检查/修复和 HWND-only `/focus/{sessionId}`。完整 Tauri 托盘 UI、Toast 点击 deep link、activation nonce、PID/标题 fallback、session 详情页和 `agentrun` 尚未实现。
 
 ## 最终链路
 
@@ -52,7 +52,7 @@ Claude 使用 Claude Code hook。Codex 使用 Codex 官方 lifecycle hooks，本
 - Codex hooks：通过 Codex 用户级 `%USERPROFILE%\.codex\hooks.json` 或 `%USERPROFILE%\.codex\config.toml` 捕获生命周期事件，只支持当前最新版官方 hooks。
 - `agent-notify-hook.ps1`：把工具 payload、参数和环境变量转换为标准 JSON，并写入 `agent-notify emit --stdin` 子进程；不得把事件 JSON 写到 hook 自身 stdout。
 - `agent-notify emit --stdin`：把标准事件送入本地后台；默认静默丢弃失败，严格模式由 `AGENT_NOTIFY_STRICT` 开启。
-- `agent-notify-tray`：当前维护内存 session 列表、显示通知、接收 hook 事件、创建/更新 `Agent Notify.lnk` 以获取 Windows Toast AppID，并提供 HWND-only focus 接口。
+- `agent-notify-tray`：当前维护内存 session 列表、显示中文通知、接收 hook 事件、创建/更新 `智能任务通知.lnk` 和图标资源以获取 Windows Toast AppID，并提供 HWND-only focus 接口。
 - Tauri 托盘应用：后续提供常驻托盘壳、运行时监听开关、hook 健康状态、session 面板、通知点击回调和静音入口。
 - 通知内容：遵循 `NOTIFICATION_POLICY.md`，默认只展示脱敏摘要。
 
