@@ -76,6 +76,12 @@ async fn serve() -> Result<()> {
             eprintln!("hook manager warning: {error}");
         }
     }
+    #[cfg(windows)]
+    if !ensure_windows_toast_registration() {
+        eprintln!(
+            "toast registration warning: failed to register Agent Notify Start Menu shortcut"
+        );
+    }
 
     let token = read_token(&config).context("failed to read auth token")?;
     let state = build_state(&config, token);
@@ -175,7 +181,7 @@ fn authorize(headers: &HeaderMap, state: &AppState) -> Result<(), StatusCode> {
 fn show_notification(_event: &AgentEvent, view: &agent_notify_core::NotificationView) -> bool {
     #[cfg(windows)]
     {
-        show_windows_toast(view);
+        return show_windows_toast(view);
     }
     #[cfg(not(windows))]
     {
@@ -185,51 +191,139 @@ fn show_notification(_event: &AgentEvent, view: &agent_notify_core::Notification
             view.body,
             view.detail.as_deref().unwrap_or_default()
         );
+        true
     }
-    true
 }
 
 #[cfg(windows)]
-fn show_windows_toast(view: &agent_notify_core::NotificationView) {
-    use std::process::Command;
-    let title = ps_escape(&view.title);
-    let body = ps_escape(&format!(
+fn show_windows_toast(view: &agent_notify_core::NotificationView) -> bool {
+    let body = format!(
         "{}{}{}",
         view.body,
         if view.detail.is_some() { " - " } else { "" },
         view.detail.as_deref().unwrap_or_default()
-    ));
-    let script = format!(
-        r#"
+    );
+    let script = r#"
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null
-$template = @"
-<toast><visual><binding template="ToastGeneric"><text>{title}</text><text>{body}</text></binding></visual></toast>
-"@
+
+$appName = "Agent Notify"
+$app = Get-StartApps | Where-Object { $_.Name -eq $appName } | Select-Object -First 1
+if ($null -eq $app) {
+    $powerShellApp = Get-StartApps | Where-Object { $_.Name -eq "Windows PowerShell" } | Select-Object -First 1
+    if ($null -eq $powerShellApp) {
+        throw "Agent Notify is not registered in Start Menu and Windows PowerShell fallback was not found"
+    }
+    $appId = $powerShellApp.AppID
+} else {
+    $appId = $app.AppID
+}
+
+function Escape-ToastText([string]$value) {
+    if ($null -eq $value) {
+        return ""
+    }
+    return [System.Security.SecurityElement]::Escape($value)
+}
+
+$title = Escape-ToastText $env:AGENT_NOTIFY_TOAST_TITLE
+$body = Escape-ToastText $env:AGENT_NOTIFY_TOAST_BODY
+$template = "<toast><visual><binding template=""ToastGeneric""><text>$title</text><text>$body</text></binding></visual></toast>"
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $xml.LoadXml($template)
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("AgentNotify").Show($toast)
-"#
-    );
-    let _ = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &script,
-        ])
-        .status();
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
+"#;
+    run_windows_powershell(
+        script,
+        &[
+            ("AGENT_NOTIFY_TOAST_TITLE", view.title.as_str()),
+            ("AGENT_NOTIFY_TOAST_BODY", body.as_str()),
+        ],
+    )
 }
 
 #[cfg(windows)]
-fn ps_escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+fn ensure_windows_toast_registration() -> bool {
+    let target = match std::env::current_exe() {
+        Ok(path) => path.display().to_string(),
+        Err(error) => {
+            eprintln!("toast registration warning: failed to resolve current executable: {error}");
+            return false;
+        }
+    };
+    let script = r#"
+$ErrorActionPreference = "Stop"
+$target = $env:AGENT_NOTIFY_EXE_PATH
+if ([string]::IsNullOrWhiteSpace($target) -or -not (Test-Path -LiteralPath $target)) {
+    throw "Agent Notify executable was not found: $target"
+}
+
+$shortcutDir = [Environment]::GetFolderPath("Programs")
+if ([string]::IsNullOrWhiteSpace($shortcutDir)) {
+    throw "Current user Start Menu Programs folder was not found"
+}
+
+$shortcutPath = Join-Path $shortcutDir "Agent Notify.lnk"
+$shell = New-Object -ComObject WScript.Shell
+$shortcut = $shell.CreateShortcut($shortcutPath)
+$shortcut.TargetPath = $target
+$shortcut.Arguments = "serve"
+$shortcut.WorkingDirectory = Split-Path -Parent $target
+$shortcut.IconLocation = "$target,0"
+$shortcut.Description = "Agent Notify notification backend"
+$shortcut.Save()
+
+for ($i = 0; $i -lt 10; $i++) {
+    $app = Get-StartApps | Where-Object { $_.Name -eq "Agent Notify" } | Select-Object -First 1
+    if ($null -ne $app) {
+        return
+    }
+    Start-Sleep -Milliseconds 200
+}
+
+throw "Agent Notify Start Menu shortcut was created, but Windows did not return an AppID"
+"#;
+    run_windows_powershell(script, &[("AGENT_NOTIFY_EXE_PATH", target.as_str())])
+}
+
+#[cfg(windows)]
+fn run_windows_powershell(script: &str, envs: &[(&str, &str)]) -> bool {
+    use std::process::Command;
+
+    let mut command = Command::new("powershell");
+    command.args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+    ]);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+
+    match command.output() {
+        Ok(output) if output.status.success() => true,
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            eprintln!(
+                "toast powershell warning: exit={} stderr={} stdout={}",
+                output
+                    .status
+                    .code()
+                    .map_or_else(|| "terminated".to_string(), |code| code.to_string()),
+                stderr.trim(),
+                stdout.trim()
+            );
+            false
+        }
+        Err(error) => {
+            eprintln!("toast powershell warning: failed to start PowerShell: {error}");
+            false
+        }
+    }
 }
 
 fn focus_window(session: &SessionInfo) -> bool {

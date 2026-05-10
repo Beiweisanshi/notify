@@ -4,7 +4,7 @@
 
 通知只负责提醒用户“哪个会话需要处理”，不在通知中暴露完整命令、完整输出或敏感参数，也不允许直接批准 Claude/Codex 的权限请求。
 
-当前实现中，通知由 `agent-notify-tray` 后台根据 `NotificationView` 生成并通过 PowerShell Windows Runtime Toast 展示。Toast 目前只展示标题、正文和截断到 160 字符的详情；点击回调、忽略、静音、session 详情页和 Tauri 托盘 UI 尚未实现。
+当前实现中，通知由 `agent-notify-tray` 后台根据 `NotificationView` 生成，并通过 PowerShell Windows Runtime Toast 展示。后台启动时会创建或更新当前用户的 `Agent Notify.lnk`，发送时通过 `Get-StartApps` 获取 AppID。Toast 目前只展示标题、正文和截断到 160 字符的详情；点击回调、忽略、静音、session 详情页和 Tauri 托盘 UI 尚未实现。
 
 ## 通知模板
 

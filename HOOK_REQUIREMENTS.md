@@ -8,7 +8,7 @@
 
 - `agent-notify-hook.ps1` 读取 stdin、参数和环境变量，生成统一事件，并通过 `agent-notify emit --stdin` 转发。
 - `agent-notify emit --stdin` 读取事件 JSON，校验后用 Bearer token POST 到本地后台 `/events`。
-- `agent-notify-tray` 当前是 Axum localhost 后台，提供 `/events`、`/sessions`、`/focus/{sessionId}`，所有路由均鉴权。
+- `agent-notify-tray` 当前是 Axum localhost 后台，提供 `/events`、`/sessions`、`/focus/{sessionId}`，所有路由均鉴权；`serve` 会创建/更新当前用户 `Agent Notify.lnk`，并通过 Windows Start Menu AppID 发送 Toast。
 - Hook Manager 会复制运行时 hook、生成 manifest、备份并合并 Claude/Codex 用户级配置，并把 hook 命令写成当前用户的绝对路径。
 
 当前尚未实现完整 Tauri 托盘 UI、Toast 点击 deep link、activation nonce、PID/标题 fallback、ACL 加固、备份保留清理和自动回滚恢复。
