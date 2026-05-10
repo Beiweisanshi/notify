@@ -1,0 +1,1163 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude/Codex Hook 通知最终方案演示</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --ink: #172033;
+      --muted: #5f6b7d;
+      --line: #d9dee8;
+      --line-strong: #b9c2d2;
+      --blue: #1f5fbf;
+      --green: #16735d;
+      --amber: #a46100;
+      --red: #b3261e;
+      --purple: #6b43b8;
+      --shadow: 0 14px 34px rgba(23, 32, 51, 0.09);
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background:
+        linear-gradient(180deg, #ffffff 0, #f4f6f8 360px),
+        var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      line-height: 1.55;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .wrap {
+      width: min(1240px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 28px;
+      align-items: center;
+      padding: 32px 0 26px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(28px, 4vw, 44px);
+      line-height: 1.16;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 22px;
+      line-height: 1.2;
+      margin-bottom: 14px;
+    }
+
+    h3 {
+      font-size: 16px;
+      line-height: 1.25;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      margin-top: 12px;
+      max-width: 760px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: #425066;
+      padding: 5px 9px;
+      font-size: 13px;
+    }
+
+    main {
+      padding: 24px 0 46px;
+    }
+
+    section {
+      margin-bottom: 24px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+
+    .hero-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfcfe;
+      padding: 16px;
+    }
+
+    .hero-metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 12px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 22px;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.75fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      position: relative;
+    }
+
+    .flow-card {
+      position: relative;
+      min-height: 150px;
+      border: 1px solid var(--line);
+      border-top: 5px solid var(--blue);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 14px;
+    }
+
+    .flow-card::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -13px;
+      width: 13px;
+      border-top: 2px solid var(--line-strong);
+    }
+
+    .flow-card:nth-child(4)::after,
+    .flow-card:nth-child(8)::after {
+      display: none;
+    }
+
+    .flow-card.source {
+      border-top-color: var(--purple);
+    }
+
+    .flow-card.hook {
+      border-top-color: var(--blue);
+    }
+
+    .flow-card.event {
+      border-top-color: var(--green);
+    }
+
+    .flow-card.notify {
+      border-top-color: var(--amber);
+    }
+
+    .flow-card.focus {
+      border-top-color: var(--red);
+    }
+
+    .num {
+      display: inline-grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: #eef3ff;
+      color: var(--blue);
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+
+    .flow-card p,
+    .flow-card li,
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    ul {
+      margin: 8px 0 0;
+      padding-left: 18px;
+    }
+
+    code,
+    pre {
+      font-family: Consolas, "Cascadia Mono", monospace;
+    }
+
+    code {
+      border: 1px solid #e4e8f0;
+      border-radius: 4px;
+      background: #f2f4f8;
+      padding: 1px 5px;
+      font-size: 13px;
+    }
+
+    pre {
+      margin: 10px 0 0;
+      overflow: auto;
+      border-radius: var(--radius);
+      background: #111827;
+      color: #eef2ff;
+      padding: 14px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .branch {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .branch-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 14px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 5px;
+      padding: 2px 7px;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.5;
+    }
+
+    .tag.info {
+      background: #eaf1ff;
+      color: var(--blue);
+    }
+
+    .tag.warn {
+      background: #fff2d6;
+      color: var(--amber);
+    }
+
+    .tag.ok {
+      background: #e5f4ef;
+      color: var(--green);
+    }
+
+    .tag.error {
+      background: #fde8e6;
+      color: var(--red);
+    }
+
+    .demo-shell {
+      display: grid;
+      gap: 14px;
+      position: sticky;
+      top: 16px;
+    }
+
+    .demo-controls {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    button {
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      cursor: pointer;
+      padding: 7px 10px;
+      text-align: left;
+    }
+
+    button.active {
+      border-color: var(--blue);
+      background: #eef3ff;
+      box-shadow: 0 0 0 3px rgba(31, 95, 191, 0.12);
+    }
+
+    .app-window {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+
+    .app-titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 42px;
+      border-bottom: 1px solid var(--line);
+      background: #f7f8fb;
+      padding: 8px 12px;
+    }
+
+    .traffic {
+      display: flex;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #c8cfda;
+    }
+
+    .tray-body {
+      display: grid;
+      grid-template-columns: 145px 1fr;
+      min-height: 370px;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+      background: #f9fafc;
+      padding: 12px;
+    }
+
+    .side-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      border-radius: 6px;
+      padding: 8px;
+      color: #3b4658;
+      font-size: 13px;
+    }
+
+    .side-item.current {
+      background: #eaf1ff;
+      color: var(--blue);
+      font-weight: 700;
+    }
+
+    .main-pane {
+      padding: 14px;
+    }
+
+    .status-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin: 10px 0 12px;
+    }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      padding: 4px 9px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .switch {
+      width: 34px;
+      height: 18px;
+      border-radius: 999px;
+      background: var(--green);
+      position: relative;
+    }
+
+    .switch::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #fff;
+    }
+
+    .session-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .session {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 10px;
+    }
+
+    .session-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .terminal {
+      border-radius: var(--radius);
+      background: #0f172a;
+      color: #dbeafe;
+      min-height: 180px;
+      padding: 12px;
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 13px;
+      overflow: hidden;
+    }
+
+    .terminal-line {
+      white-space: nowrap;
+      margin-bottom: 5px;
+    }
+
+    .cursor {
+      display: inline-block;
+      width: 8px;
+      height: 14px;
+      background: #dbeafe;
+      vertical-align: -2px;
+      animation: blink 1s steps(2, start) infinite;
+    }
+
+    @keyframes blink {
+      50% {
+        opacity: 0;
+      }
+    }
+
+    .toast-stage {
+      position: relative;
+      min-height: 180px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(135deg, #e9eef6, #f9fafc);
+      padding: 16px;
+      overflow: hidden;
+    }
+
+    .toast {
+      position: absolute;
+      right: 16px;
+      bottom: 16px;
+      width: min(340px, calc(100% - 32px));
+      border: 1px solid #cdd5e3;
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 16px 34px rgba(15, 23, 42, 0.2);
+      padding: 12px;
+    }
+
+    .toast-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .toast-title {
+      font-weight: 700;
+    }
+
+    .toast-body {
+      color: #374151;
+      font-size: 14px;
+    }
+
+    .toast-detail {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .toast-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .toast-actions span {
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #f6f8fb;
+      padding: 5px 8px;
+      font-size: 12px;
+    }
+
+    .map-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: #fff;
+      font-size: 14px;
+    }
+
+    .map-table th,
+    .map-table td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .map-table th {
+      background: #f0f3f8;
+      color: #30394d;
+    }
+
+    .map-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .note {
+      border-left: 4px solid var(--amber);
+      border-radius: 6px;
+      background: #fff8e8;
+      color: #4d3a16;
+      padding: 12px 14px;
+    }
+
+    @media (max-width: 1080px) {
+      .hero,
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .demo-shell {
+        position: static;
+      }
+
+      .flow-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .flow-card:nth-child(2)::after,
+      .flow-card:nth-child(6)::after {
+        display: none;
+      }
+
+      .flow-card:nth-child(4)::after {
+        display: block;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .flow-grid,
+      .branch,
+      .hero-metrics,
+      .demo-controls {
+        grid-template-columns: 1fr;
+      }
+
+      .flow-card::after {
+        display: none;
+      }
+
+      .tray-body {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <div>
+        <h1>Claude/Codex Hook 通知最终方案</h1>
+        <p class="subtitle">
+          当前代码先交付后端 MVP：<code>agent-notify-tray</code> 作为 localhost 后台自动检查并安装 Claude/Codex hooks，接收官方 hook 上报的事件，弹出 Windows Toast。完整 Tauri 托盘 UI、通知点击 deep link 和 PID/标题唤窗 fallback 仍是后续计划。
+        </p>
+        <div class="pills">
+          <span class="pill">自动检查/安装 hooks</span>
+          <span class="pill">Claude Code hook</span>
+          <span class="pill">Codex lifecycle hooks</span>
+          <span class="pill">本地后台 MVP</span>
+          <span class="pill">离线事件丢弃</span>
+          <span class="pill">不自动批准权限</span>
+        </div>
+      </div>
+      <div class="hero-card">
+        <h2>第一版承诺</h2>
+        <div class="hero-metrics">
+          <div class="metric">
+            <strong>2</strong>
+            <span>AI CLI 都走官方 hook</span>
+          </div>
+          <div class="metric">
+            <strong>0</strong>
+            <span>离线事件补发次数</span>
+          </div>
+          <div class="metric">
+            <strong>160</strong>
+            <span>通知详情最大字符数</span>
+          </div>
+          <div class="metric">
+            <strong>30s</strong>
+            <span>同类通知去重窗口</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="note">
+      当前实现：Axum localhost 后台、Bearer 鉴权、内存 session 表、30 秒去重、PowerShell Windows Runtime Toast、Hook Manager 自动安装/修复、HWND-only <code>/focus/{sessionId}</code>。未实现：完整 Tauri 托盘 UI、Toast 点击回调、<code>agent-notify://focus?activationId=...</code>、PID/进程树/窗口标题 fallback、session 详情页和 <code>agentrun</code>。
+    </section>
+
+    <div class="layout">
+      <div>
+        <section class="panel">
+          <h2>详细流程图</h2>
+          <div class="flow-grid">
+            <article class="flow-card source">
+              <div class="num">1</div>
+              <h3>启动自检</h3>
+              <p><code>agent-notify-tray serve</code> 启动时检查 hooks；托盘监听入口待实现。</p>
+              <ul>
+                <li><code>claude --version</code></li>
+                <li><code>codex features list</code></li>
+              </ul>
+            </article>
+
+            <article class="flow-card hook">
+              <div class="num">2</div>
+              <h3>自动安装 Hook</h3>
+              <p>缺失或过期时备份用户配置，再合并本项目 hook。</p>
+              <ul>
+                <li><code>%LOCALAPPDATA%\AgentNotify\hooks</code></li>
+                <li>不覆盖用户已有 hook</li>
+              </ul>
+            </article>
+
+            <article class="flow-card source">
+              <div class="num">3</div>
+              <h3>任意终端启动</h3>
+              <p>用户仍按原习惯打开 Windows Terminal、PowerShell、CMD 或 IDE 终端。</p>
+              <ul>
+                <li><code>claude</code></li>
+                <li><code>codex</code></li>
+              </ul>
+            </article>
+
+            <article class="flow-card source">
+              <div class="num">4</div>
+              <h3>官方 Hook 触发</h3>
+              <p>Claude/Codex 在生命周期节点调用用户级 hook。</p>
+              <ul>
+                <li>Claude Stop / Notification</li>
+                <li>Codex PermissionRequest / Stop</li>
+              </ul>
+            </article>
+
+            <article class="flow-card hook">
+              <div class="num">5</div>
+              <h3>通用 Hook 入口</h3>
+              <p><code>agent-notify-hook.ps1</code> 读取 stdin payload、参数和环境变量。</p>
+              <ul>
+                <li>生成 <code>sessionId</code></li>
+                <li>提取 cwd / PID / 窗口信息</li>
+              </ul>
+            </article>
+
+            <article class="flow-card event">
+              <div class="num">6</div>
+              <h3>标准事件 JSON</h3>
+              <p>把不同工具 payload 统一为同一种事件协议。</p>
+              <ul>
+                <li><code>eventType</code></li>
+                <li><code>severity</code></li>
+                <li><code>message</code></li>
+              </ul>
+            </article>
+
+            <article class="flow-card hook">
+              <div class="num">7</div>
+              <h3>CLI 转发</h3>
+              <p>hook 不直接发 Toast，只调用：</p>
+              <p><code>agent-notify emit --stdin</code></p>
+              <ul>
+                <li>本地 token</li>
+                <li>2 秒内退出</li>
+              </ul>
+            </article>
+
+            <article class="flow-card event">
+              <div class="num">8</div>
+              <h3>本地后台</h3>
+              <p>当前 Axum 后台接收事件，更新内存 session 状态并去重。</p>
+              <ul>
+                <li>启动配置监听开关</li>
+                <li>30 秒去重</li>
+                <li>离线直接丢弃</li>
+              </ul>
+            </article>
+
+            <article class="flow-card notify">
+              <div class="num">9</div>
+              <h3>Windows 通知</h3>
+              <p>按通知策略展示简短、安全的气泡通知。</p>
+              <ul>
+                <li>点击回调待实现</li>
+                <li>不显示完整命令</li>
+                <li>不提供批准按钮</li>
+              </ul>
+            </article>
+
+            <article class="flow-card focus">
+              <div class="num">10</div>
+              <h3>点击唤窗</h3>
+              <p>当前仅支持 HTTP 调用 <code>/focus/{sessionId}</code> 后按 HWND 聚焦；Toast 点击和 PID/标题 fallback 待实现。</p>
+              <ul>
+                <li>独立窗口较稳</li>
+                <li>多 tab 只保证 best-effort</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="branch">
+            <div class="branch-card">
+              <span class="tag warn">监听关闭</span>
+              <h3 style="margin-top: 8px;">事件直接丢弃</h3>
+              <p class="small">用户关闭监听、本地后台未运行、token 无效或本地通信失败时，不写离线队列，也不补发过期通知。</p>
+            </div>
+            <div class="branch-card">
+              <span class="tag info">唤窗失败</span>
+              <h3 style="margin-top: 8px;">打开 session 详情</h3>
+              <p class="small">session 详情页是后续 Tauri UI 降级；当前接口返回 <code>openedSessionDetail</code> 标志但不会打开 UI。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Codex Hook 映射</h2>
+          <table class="map-table">
+            <thead>
+              <tr>
+                <th>Codex lifecycle hook</th>
+                <th>统一事件</th>
+                <th>最终效果</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>SessionStart</code></td>
+                <td><code>task.started</code></td>
+                <td>更新内存 session 列表，默认不弹通知；托盘列表待实现。</td>
+              </tr>
+              <tr>
+                <td><code>PermissionRequest</code></td>
+                <td><code>user.confirmation_required</code></td>
+                <td>弹出高优先级通知；点击回到终端待实现。</td>
+              </tr>
+              <tr>
+                <td><code>Stop</code></td>
+                <td><code>task.completed</code> 或 <code>user.input_required</code></td>
+                <td>提示本轮完成或等待下一步。</td>
+              </tr>
+              <tr>
+                <td><code>PostToolUse</code></td>
+                <td><code>tool.blocked</code> 或 <code>task.failed</code></td>
+                <td>提示工具调用受阻或失败。</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="panel">
+          <h2>标准事件示例</h2>
+          <pre><code>{
+  "version": 1,
+  "eventId": "01HF...",
+  "eventType": "user.confirmation_required",
+  "severity": "warning",
+  "tool": "codex",
+  "sessionId": "codex-D-own-project-20260510-1942",
+  "project": {
+    "cwd": "D:\\own\\project",
+    "name": "project"
+  },
+  "process": {
+    "pid": 18432,
+    "parentPid": 9912
+  },
+  "window": {
+    "title": "Windows PowerShell",
+    "hwnd": null,
+    "terminal": "WindowsTerminal"
+  },
+  "message": {
+    "title": "Codex 需要确认",
+    "body": "project · 当前会话 · 点击返回终端",
+    "detail": "请求执行 shell 命令，参数已隐藏"
+  }
+}</code></pre>
+        </section>
+      </div>
+
+      <aside class="demo-shell">
+        <section class="panel">
+          <h2>最终效果演示</h2>
+          <div class="demo-controls" aria-label="演示场景">
+            <button type="button" class="active" data-demo="codex-confirm">Codex 需要确认</button>
+            <button type="button" data-demo="claude-input">Claude 等待输入</button>
+            <button type="button" data-demo="codex-done">Codex 任务完成</button>
+            <button type="button" data-demo="hook-repair">Hook 需要修复</button>
+            <button type="button" data-demo="offline-drop">监听关闭丢弃</button>
+          </div>
+        </section>
+
+        <section class="app-window" aria-label="后续 Tauri 托盘应用模拟">
+          <div class="app-titlebar">
+            <div class="traffic" aria-hidden="true">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+            <strong>Agent Notify</strong>
+            <span class="tag ok" id="listener-tag">监听开启</span>
+          </div>
+          <div class="tray-body">
+            <nav class="sidebar" aria-label="模拟导航">
+              <div class="side-item current">Sessions <span>3</span></div>
+              <div class="side-item">Rules <span></span></div>
+              <div class="side-item">Logs <span></span></div>
+              <div class="side-item">Settings <span></span></div>
+            </nav>
+            <div class="main-pane">
+              <h3>运行中的会话</h3>
+              <div class="status-row">
+                <span class="toggle"><span class="switch" id="switch"></span>监听状态</span>
+                <span class="tag info" id="event-type">user.confirmation_required</span>
+              </div>
+              <div class="status-row">
+                <span class="tag ok" id="claude-hook">Claude hook_ok</span>
+                <span class="tag ok" id="codex-hook">Codex hook_ok</span>
+                <button type="button" class="tag info" id="repair-action" style="border: 0;">修复 hooks</button>
+              </div>
+              <div class="session-list">
+                <div class="session">
+                  <div class="session-top">
+                    <strong id="session-title">Codex · project</strong>
+                    <span class="tag warn" id="session-state">等待确认</span>
+                  </div>
+                  <p class="small" id="session-detail">PermissionRequest · D:\own\project · PID 18432</p>
+                </div>
+                <div class="session">
+                  <div class="session-top">
+                    <strong>Claude · backend</strong>
+                    <span class="tag ok">运行中</span>
+                  </div>
+                  <p class="small">D:\own\backend · PID 11204</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="toast-stage" aria-label="Windows 通知模拟">
+          <div class="terminal" id="terminal">
+            <div class="terminal-line">PS D:\own\project&gt; codex</div>
+            <div class="terminal-line">Codex 正在请求执行 shell 命令</div>
+            <div class="terminal-line">等待用户确认 <span class="cursor"></span></div>
+          </div>
+          <div class="toast" id="toast">
+            <div class="toast-head">
+              <span class="toast-title" id="toast-title">Codex 需要确认</span>
+              <span class="tag warn" id="toast-priority">高优先级</span>
+            </div>
+            <div class="toast-body" id="toast-body">project · 当前会话 · 点击返回终端</div>
+            <div class="toast-detail" id="toast-detail">请求执行 shell 命令，参数已隐藏</div>
+            <div class="toast-actions">
+              <span>当前不处理点击；deep link 待实现</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>点击后的行为</h2>
+          <ol class="small" style="margin: 0; padding-left: 18px;">
+            <li>当前 Toast 不携带点击回调。</li>
+            <li>可用 Bearer token 调用 <code>POST /focus/{sessionId}</code>。</li>
+            <li>后台查 session 表，并仅按 HWND 尝试定位终端。</li>
+            <li>deep link、activation nonce、PID/标题 fallback 和 session 详情页待实现。</li>
+          </ol>
+          <p class="note" style="margin-top: 12px;">
+            通知不会直接批准 Claude/Codex 的权限请求。用户仍必须回到终端内确认。
+          </p>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    const demos = {
+      "codex-confirm": {
+        listener: "监听开启",
+        listenerClass: "tag ok",
+        eventType: "user.confirmation_required",
+        sessionTitle: "Codex · project",
+        sessionState: "等待确认",
+        stateClass: "tag warn",
+        sessionDetail: "PermissionRequest · D:\\own\\project · PID 18432",
+        claudeHook: "Claude hook_ok",
+        claudeHookClass: "tag ok",
+        codexHook: "Codex hook_ok",
+        codexHookClass: "tag ok",
+        repairAction: "修复 hooks",
+        repairClass: "tag info",
+        terminal: [
+          "PS D:\\own\\project> codex",
+          "Codex 正在请求执行 shell 命令",
+          "等待用户确认 "
+        ],
+        toastTitle: "Codex 需要确认",
+        toastPriority: "高优先级",
+        priorityClass: "tag warn",
+        toastBody: "project · 当前会话 · 点击返回终端",
+        toastDetail: "请求执行 shell 命令，参数已隐藏",
+        showToast: true
+      },
+      "claude-input": {
+        listener: "监听开启",
+        listenerClass: "tag ok",
+        eventType: "user.input_required",
+        sessionTitle: "Claude · backend",
+        sessionState: "等待输入",
+        stateClass: "tag warn",
+        sessionDetail: "Stop · D:\\own\\backend · PID 11204",
+        claudeHook: "Claude hook_ok",
+        claudeHookClass: "tag ok",
+        codexHook: "Codex hook_ok",
+        codexHookClass: "tag ok",
+        repairAction: "修复 hooks",
+        repairClass: "tag info",
+        terminal: [
+          "PS D:\\own\\backend> claude",
+          "Claude 已完成本轮修改",
+          "等待你的下一步 "
+        ],
+        toastTitle: "Claude 等待输入",
+        toastPriority: "高优先级",
+        priorityClass: "tag warn",
+        toastBody: "backend · 当前会话 · 需要你的下一步",
+        toastDetail: "默认不显示模型完整问题",
+        showToast: true
+      },
+      "codex-done": {
+        listener: "监听开启",
+        listenerClass: "tag ok",
+        eventType: "task.completed",
+        sessionTitle: "Codex · project",
+        sessionState: "已完成",
+        stateClass: "tag ok",
+        sessionDetail: "Stop · D:\\own\\project · PID 18432",
+        claudeHook: "Claude hook_ok",
+        claudeHookClass: "tag ok",
+        codexHook: "Codex hook_ok",
+        codexHookClass: "tag ok",
+        repairAction: "修复 hooks",
+        repairClass: "tag info",
+        terminal: [
+          "PS D:\\own\\project> codex",
+          "Codex 已完成本轮任务",
+          "等待新的提示 "
+        ],
+        toastTitle: "Codex 任务完成",
+        toastPriority: "普通",
+        priorityClass: "tag info",
+        toastBody: "project · 当前会话 · 点击查看结果",
+        toastDetail: "本轮已停止，等待下一步",
+        showToast: true
+      },
+      "hook-repair": {
+        listener: "监听开启",
+        listenerClass: "tag ok",
+        eventType: "hook_outdated",
+        sessionTitle: "Hooks · 自动检查",
+        sessionState: "需要修复",
+        stateClass: "tag warn",
+        sessionDetail: "Codex hooks.json 指向旧路径，已备份，等待修复",
+        claudeHook: "Claude hook_ok",
+        claudeHookClass: "tag ok",
+        codexHook: "Codex hook_outdated",
+        codexHookClass: "tag warn",
+        repairAction: "立即修复",
+        repairClass: "tag warn",
+        terminal: [
+          "Agent Notify Hook Manager",
+          "检测到 Codex hook 指向旧路径",
+          "点击修复 hooks "
+        ],
+        toastTitle: "",
+        toastPriority: "",
+        priorityClass: "tag info",
+        toastBody: "",
+        toastDetail: "",
+        showToast: false
+      },
+      "offline-drop": {
+        listener: "监听关闭",
+        listenerClass: "tag error",
+        eventType: "dropped",
+        sessionTitle: "Codex · project",
+        sessionState: "未接收",
+        stateClass: "tag error",
+        sessionDetail: "监听关闭，hook 事件直接丢弃",
+        claudeHook: "Claude hook_ok",
+        claudeHookClass: "tag ok",
+        codexHook: "Codex hook_ok",
+        codexHookClass: "tag ok",
+        repairAction: "修复 hooks",
+        repairClass: "tag info",
+        terminal: [
+          "PS D:\\own\\project> codex",
+          "hook 尝试发送事件",
+          "本地后台监听关闭，事件丢弃 "
+        ],
+        toastTitle: "",
+        toastPriority: "",
+        priorityClass: "tag info",
+        toastBody: "",
+        toastDetail: "",
+        showToast: false
+      }
+    };
+
+    const buttons = document.querySelectorAll("[data-demo]");
+    const listenerTag = document.getElementById("listener-tag");
+    const eventType = document.getElementById("event-type");
+    const sessionTitle = document.getElementById("session-title");
+    const sessionState = document.getElementById("session-state");
+    const sessionDetail = document.getElementById("session-detail");
+    const claudeHook = document.getElementById("claude-hook");
+    const codexHook = document.getElementById("codex-hook");
+    const repairAction = document.getElementById("repair-action");
+    const terminal = document.getElementById("terminal");
+    const toast = document.getElementById("toast");
+    const toastTitle = document.getElementById("toast-title");
+    const toastPriority = document.getElementById("toast-priority");
+    const toastBody = document.getElementById("toast-body");
+    const toastDetail = document.getElementById("toast-detail");
+
+    function setClass(node, className) {
+      node.className = className;
+    }
+
+    function renderDemo(name) {
+      const demo = demos[name];
+      buttons.forEach((button) => {
+        button.classList.toggle("active", button.dataset.demo === name);
+      });
+
+      listenerTag.textContent = demo.listener;
+      setClass(listenerTag, demo.listenerClass);
+      eventType.textContent = demo.eventType;
+      sessionTitle.textContent = demo.sessionTitle;
+      sessionState.textContent = demo.sessionState;
+      setClass(sessionState, demo.stateClass);
+      sessionDetail.textContent = demo.sessionDetail;
+      claudeHook.textContent = demo.claudeHook;
+      setClass(claudeHook, demo.claudeHookClass);
+      codexHook.textContent = demo.codexHook;
+      setClass(codexHook, demo.codexHookClass);
+      repairAction.textContent = demo.repairAction;
+      setClass(repairAction, demo.repairClass);
+
+      terminal.innerHTML = "";
+      demo.terminal.forEach((line, index) => {
+        const div = document.createElement("div");
+        div.className = "terminal-line";
+        div.textContent = line;
+        if (index === demo.terminal.length - 1) {
+          const cursor = document.createElement("span");
+          cursor.className = "cursor";
+          div.appendChild(cursor);
+        }
+        terminal.appendChild(div);
+      });
+
+      toast.style.display = demo.showToast ? "block" : "none";
+      toastTitle.textContent = demo.toastTitle;
+      toastPriority.textContent = demo.toastPriority;
+      setClass(toastPriority, demo.priorityClass);
+      toastBody.textContent = demo.toastBody;
+      toastDetail.textContent = demo.toastDetail;
+    }
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => renderDemo(button.dataset.demo));
+    });
+  </script>
+</body>
+</html>

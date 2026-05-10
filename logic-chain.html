@@ -1,0 +1,1242 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hook 通知逻辑链路</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --ink: #172033;
+      --muted: #5d6678;
+      --line: #d9dee8;
+      --blue: #2357c5;
+      --green: #19735f;
+      --amber: #9a6200;
+      --red: #b3261e;
+      --violet: #6842b8;
+      --shadow: 0 10px 30px rgba(23, 32, 51, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      line-height: 1.55;
+    }
+
+    header {
+      background: #ffffff;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .wrap {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .hero {
+      padding: 34px 0 24px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      line-height: 1.2;
+    }
+
+    h1 {
+      font-size: clamp(26px, 4vw, 42px);
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 22px;
+      margin-bottom: 14px;
+    }
+
+    h3 {
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+
+    p {
+      margin: 8px 0 0;
+    }
+
+    .subtitle {
+      max-width: 850px;
+      color: var(--muted);
+      font-size: 16px;
+      margin-top: 12px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    main {
+      padding: 26px 0 48px;
+    }
+
+    section {
+      margin-bottom: 24px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(135px, 1fr));
+      gap: 14px;
+      align-items: stretch;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .node {
+      position: relative;
+      min-height: 150px;
+      border: 1px solid var(--line);
+      border-top: 5px solid var(--blue);
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px;
+    }
+
+    .node::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -13px;
+      width: 12px;
+      height: 2px;
+      background: var(--line);
+    }
+
+    .node:last-child::after {
+      display: none;
+    }
+
+    .node.source {
+      border-top-color: var(--violet);
+    }
+
+    .node.hook {
+      border-top-color: var(--blue);
+    }
+
+    .node.daemon {
+      border-top-color: var(--green);
+    }
+
+    .node.toast {
+      border-top-color: var(--amber);
+    }
+
+    .node.focus {
+      border-top-color: var(--red);
+    }
+
+    .node .num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: #eef2ff;
+      color: var(--blue);
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+
+    .node ul,
+    .compact-list {
+      margin: 9px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .grid-2,
+    .grid-3 {
+      display: grid;
+      gap: 16px;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 16px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 5px;
+      padding: 2px 7px;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.5;
+    }
+
+    .tag.info {
+      background: #eaf1ff;
+      color: var(--blue);
+    }
+
+    .tag.warn {
+      background: #fff2d6;
+      color: var(--amber);
+    }
+
+    .tag.error {
+      background: #fde8e6;
+      color: var(--red);
+    }
+
+    .tag.ok {
+      background: #e5f4ef;
+      color: var(--green);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f1f3f7;
+      color: #30394d;
+      font-weight: 700;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    code,
+    pre {
+      font-family: Consolas, "Cascadia Mono", monospace;
+    }
+
+    code {
+      background: #f1f3f7;
+      border: 1px solid #e3e7ef;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 13px;
+    }
+
+    pre {
+      margin: 10px 0 0;
+      overflow: auto;
+      padding: 14px;
+      border-radius: 8px;
+      background: #111827;
+      color: #eef2ff;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .decision-list {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .decision {
+      display: grid;
+      grid-template-columns: 24px 1fr;
+      gap: 10px;
+      align-items: start;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+
+    .decision input {
+      width: 18px;
+      height: 18px;
+      margin-top: 2px;
+    }
+
+    .lane {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .lane-row {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .lane-label {
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #f1f3f7;
+      padding: 12px;
+      font-weight: 700;
+    }
+
+    .lane-content {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 12px;
+    }
+
+    .path {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .step {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 7px 9px;
+      background: #fff;
+      font-size: 13px;
+    }
+
+    .arrow {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .note {
+      border-left: 4px solid var(--amber);
+      background: #fff8e8;
+      padding: 12px 14px;
+      border-radius: 6px;
+      color: #4f3c17;
+    }
+
+    .choice-board {
+      display: grid;
+      gap: 16px;
+    }
+
+    .choice-group {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 16px;
+    }
+
+    .choice-group-title {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .choice-options {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .option-card {
+      display: grid;
+      grid-template-columns: 22px 1fr;
+      gap: 10px;
+      min-height: 112px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+      padding: 12px;
+      cursor: pointer;
+      transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+    }
+
+    .option-card input {
+      width: 18px;
+      height: 18px;
+      margin: 2px 0 0;
+    }
+
+    .option-card strong {
+      display: block;
+      font-size: 15px;
+      margin-bottom: 5px;
+    }
+
+    .option-card span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .option-card.selected {
+      border-color: var(--blue);
+      background: #f2f6ff;
+      box-shadow: 0 0 0 3px rgba(35, 87, 197, 0.12);
+    }
+
+    .choice-summary {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .summary-box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 16px;
+    }
+
+    .summary-line {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid #edf0f5;
+      font-size: 14px;
+    }
+
+    .summary-line:last-child {
+      border-bottom: 0;
+    }
+
+    .summary-line b {
+      color: #30394d;
+    }
+
+    .route-preview {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    .summary-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      min-height: 34px;
+      padding: 6px 10px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    button.primary {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #fff;
+    }
+
+    @media (max-width: 900px) {
+      .grid-2,
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+
+      .flow {
+        grid-template-columns: minmax(210px, 1fr);
+      }
+
+      .node::after {
+        display: none;
+      }
+
+      .lane-row {
+        grid-template-columns: 1fr;
+      }
+
+      .choice-options,
+      .choice-summary {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <h1>Hook 通知逻辑链路</h1>
+      <p class="subtitle">
+        这是当前方案的可视化评审页：Claude/Codex 主路径只走官方 hook，hook 只负责把状态转换成标准事件，
+        当前后端 MVP 统一发系统气泡通知；完整 Tauri 托盘 UI、Toast 点击回调和 PID/标题唤窗 fallback 仍是后续计划。
+      </p>
+      <div class="toolbar" aria-label="方案边界">
+        <span class="pill">Windows first</span>
+        <span class="pill">Hook 不直接发 Toast</span>
+        <span class="pill">统一 JSON 事件</span>
+        <span class="pill">后台离线直接丢弃</span>
+        <span class="pill">不自动批准权限</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="note">
+      当前实现：<code>agent-notify-tray</code> 是 Axum localhost 后台，已支持 Bearer 鉴权的 <code>/events</code>、<code>/sessions</code>、<code>/focus/{sessionId}</code>、Windows Toast 展示、内存 session 表、30 秒去重和 Hook Manager 安装/修复。未实现：完整 Tauri 托盘壳、Toast deep link、activation nonce、PID/进程树/窗口标题 fallback、session 详情页和 <code>agentrun</code>。
+    </section>
+
+    <section class="panel" id="choice-panel">
+      <h2>方案选择器</h2>
+      <p>
+        这里保留你已经确认的实现方式。Codex 只支持带官方 hooks 的最新版本，直接用 hook 上报状态。
+      </p>
+
+      <div class="choice-board" style="margin-top: 16px;">
+        <div class="choice-group" data-group="source">
+          <div class="choice-group-title">
+            <h3>1. 事件从哪里来</h3>
+            <span class="tag info">决定准确性</span>
+          </div>
+          <div class="choice-options">
+            <label class="option-card">
+              <input type="radio" name="source" value="hybrid" checked
+                data-title="Claude hook + Codex hooks"
+                data-summary="Claude 和 Codex 都用官方 hook，从任意终端启动后主动上报状态。"
+                data-risk="需要先采样 Claude/Codex hook payload，确认字段映射。">
+              <span><strong>双 hook 接入</strong>Claude 和 Codex 都走官方 hook，适合任意终端启动。</span>
+            </label>
+            <label class="option-card">
+              <input type="radio" name="source" value="wrapper"
+                data-title="普通长任务 wrapper"
+                data-summary="可选扩展：只用于 npm test、构建、部署等普通长任务，不用于 Claude/Codex 主路径。"
+                data-risk="普通任务 wrapper 不影响 Claude/Codex hook 方案。">
+              <span><strong>普通任务扩展</strong>覆盖非 AI CLI 的完成/失败提醒。</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="choice-group" data-group="transport">
+          <div class="choice-group-title">
+            <h3>2. Hook 怎么触发通知</h3>
+            <span class="tag info">决定解耦方式</span>
+          </div>
+          <div class="choice-options">
+            <label class="option-card">
+              <input type="radio" name="transport" value="cli" checked
+                data-title="hook -> agent-notify emit --stdin -> 后台"
+                data-summary="hook 只生成 JSON，交给 CLI 转发给通知后台。"
+                data-risk="需要保证 agent-notify 命令在 PATH 中可用。">
+              <span><strong>CLI 转发</strong>hook 不直接接触 Toast，逻辑最清晰。</span>
+            </label>
+            <label class="option-card">
+              <input type="radio" name="transport" value="http"
+                data-title="hook -> localhost HTTP -> 后台"
+                data-summary="hook 直接 POST 到 127.0.0.1:17891/events，并携带 Bearer token。"
+                data-risk="需要处理端口占用、token 管理和本机伪造请求。">
+              <span><strong>HTTP 直发</strong>调试方便，但要加本地 token。</span>
+            </label>
+            <label class="option-card">
+              <input type="radio" name="transport" value="direct-toast"
+                data-title="hook 直接调用 Toast"
+                data-summary="hook 自己调用系统通知 API，不经过统一后台。"
+                data-risk="点击回调、去重、隐私策略会分散到多个 hook。">
+              <span><strong>直接通知</strong>最短路径，但后续维护成本高。</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="choice-group" data-group="notify">
+          <div class="choice-group-title">
+            <h3>3. 系统通知由谁发</h3>
+            <span class="tag warn">决定 Windows 集成</span>
+          </div>
+          <div class="choice-options">
+            <label class="option-card">
+              <input type="radio" name="notify" value="tauri"
+                data-title="本地后台，Tauri UI 待接入"
+                data-summary="当前由 agent-notify-tray 后台统一发通知；托盘、监听开关和 session 面板后续接入。"
+                data-risk="还需要处理托盘常驻、Toast 点击回调和外部窗口唤起 fallback。">
+              <span><strong>本地后台</strong>已能统一发通知；Tauri UI 后续承载状态面板。</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="choice-group" data-group="focus">
+          <div class="choice-group-title">
+            <h3>4. 点击通知怎么回窗口</h3>
+            <span class="tag warn">决定可用体验</span>
+          </div>
+          <div class="choice-options">
+            <label class="option-card">
+              <input type="radio" name="focus" value="external" checked
+                data-title="HTTP focus 已有，Toast 点击待实现"
+                data-summary="当前可通过 /focus/{sessionId} 按 HWND 聚焦；点击通知和 PID/标题 fallback 后续实现。"
+                data-risk="Windows Terminal 多 tab 不能保证精确切到具体 tab，且当前还没有 Toast 点击 deep link。">
+              <span><strong>外部终端</strong>允许从任意终端启动；当前只覆盖 HWND focus。</span>
+            </label>
+            <label class="option-card">
+              <input type="radio" name="focus" value="session-detail"
+                data-title="唤窗失败打开 session 详情"
+                data-summary="如果无法定位外部终端，后续打开 Tauri session 详情作为降级。"
+                data-risk="当前 session 详情页还未实现，只能从 /sessions 查询最后事件。">
+              <span><strong>降级详情</strong>是后续 UI 能力；当前只返回接口状态。</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="choice-group" data-group="codex">
+          <div class="choice-group-title">
+            <h3>5. Codex 等待确认怎么处理</h3>
+            <span class="tag error">决定承诺边界</span>
+          </div>
+          <div class="choice-options">
+            <label class="option-card">
+              <input type="radio" name="codex" value="codex-hooks" checked
+                data-title="官方 lifecycle hooks"
+                data-summary="使用 Codex 的 SessionStart、PermissionRequest、Stop、PostToolUse 等 hook。"
+                data-risk="需要采样本机 Codex hook payload，确认事件字段。">
+              <span><strong>Codex hooks</strong>达到和 Claude hook 类似的主动通知效果。</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="choice-summary">
+        <div class="summary-box">
+          <h3>你当前选择的链路</h3>
+          <div class="route-preview" id="route-preview"></div>
+          <div id="choice-summary-lines" style="margin-top: 10px;"></div>
+        </div>
+        <div class="summary-box">
+          <h3>当前风险和实施顺序</h3>
+          <ul class="compact-list" id="choice-risks"></ul>
+          <div class="summary-actions">
+            <button type="button" class="primary" id="copy-selection">复制选择摘要</button>
+            <button type="button" id="reset-selection">恢复推荐选择</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>主链路</h2>
+      <div class="flow" aria-label="主链路图">
+        <article class="node source">
+          <div class="num">1</div>
+          <h3>事件来源</h3>
+          <p>Claude hook、Codex hook 发现状态变化；普通命令 wrapper 只是可选能力。</p>
+          <ul>
+            <li>任务完成</li>
+            <li>任务失败</li>
+            <li>需要用户确认</li>
+            <li>需要继续输入</li>
+          </ul>
+        </article>
+
+        <article class="node hook">
+          <div class="num">2</div>
+          <h3>通用 Hook</h3>
+          <p><code>agent-notify-hook.ps1</code> 读取 payload、参数和环境变量。</p>
+          <ul>
+            <li>补齐 sessionId</li>
+            <li>补齐 cwd / PID / 窗口标题</li>
+            <li>截断敏感详情</li>
+          </ul>
+        </article>
+
+        <article class="node hook">
+          <div class="num">3</div>
+          <h3>标准事件</h3>
+          <p>Hook 生成统一 JSON，并写入 <code>agent-notify emit --stdin</code> 子进程。</p>
+          <ul>
+            <li><code>eventType</code></li>
+            <li><code>severity</code></li>
+            <li><code>sessionId</code></li>
+            <li><code>message</code></li>
+          </ul>
+        </article>
+
+        <article class="node daemon">
+          <div class="num">4</div>
+          <h3>通知后台</h3>
+          <p>当前 <code>agent-notify-tray</code> 后台接收事件，校验、去重并保存内存 session 状态。</p>
+          <ul>
+            <li>优先 <code>agent-notify emit --stdin</code></li>
+            <li>备用 <code>POST /events</code></li>
+            <li>Bearer token</li>
+          </ul>
+        </article>
+
+        <article class="node toast">
+          <div class="num">5</div>
+          <h3>系统通知</h3>
+          <p>后台统一调用 Windows Toast，展示类似微信气泡的系统通知。</p>
+          <ul>
+            <li>完成通知</li>
+            <li>确认通知</li>
+            <li>失败通知</li>
+          </ul>
+        </article>
+
+        <article class="node focus">
+          <div class="num">6</div>
+          <h3>点击唤窗</h3>
+          <p>当前可手动调用 <code>/focus/{sessionId}</code>，后台只按 HWND 尝试唤起外部终端窗口。</p>
+          <ul>
+            <li>优先 HWND</li>
+            <li>PID fallback 待实现</li>
+            <li>窗口标题 fallback 待实现</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="panel">
+        <h2>触发路径</h2>
+        <div class="lane">
+          <div class="lane-row">
+            <div class="lane-label">Claude</div>
+            <div class="lane-content">
+              <div class="path">
+                <span class="step">Claude hook payload</span>
+                <span class="arrow">-></span>
+                <span class="step">通用 hook</span>
+                <span class="arrow">-></span>
+                <span class="step">标准事件</span>
+                <span class="arrow">-></span>
+                <span class="step">通知后台</span>
+              </div>
+              <p>适合捕获完成、停止、权限确认、等待用户输入。</p>
+            </div>
+          </div>
+
+          <div class="lane-row">
+            <div class="lane-label">Codex</div>
+            <div class="lane-content">
+              <div class="path">
+                <span class="step">Codex lifecycle hook</span>
+                <span class="arrow">-></span>
+                <span class="step">PermissionRequest / Stop</span>
+                <span class="arrow">-></span>
+                <span class="step">标准事件</span>
+                <span class="arrow">-></span>
+                <span class="step">通知后台</span>
+              </div>
+              <p>第一版使用 Codex 官方 hooks 捕获确认、停止、工具阻塞。</p>
+            </div>
+          </div>
+
+          <div class="lane-row">
+            <div class="lane-label">普通命令</div>
+            <div class="lane-content">
+              <div class="path">
+                <span class="step">agentrun -- command（待实现）</span>
+                <span class="arrow">-></span>
+                <span class="step">进程完成</span>
+                <span class="arrow">-></span>
+                <span class="step">完成/失败事件</span>
+              </div>
+              <p>后续只用于 npm test、构建、部署等普通长任务，不作为 Claude/Codex 主路径。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>运行时文件</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>路径</th>
+              <th>用途</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>scripts/hooks/agent-notify-hook.ps1</code></td>
+              <td>本项目实现的通用 hook 入口，负责转换事件。</td>
+            </tr>
+            <tr>
+              <td><code>scripts/hooks/claude-hook.template.json</code></td>
+              <td>Claude hook 合并参考模板；当前 Hook Manager 生成等价配置并展开绝对路径。</td>
+            </tr>
+            <tr>
+              <td><code>%LOCALAPPDATA%\AgentNotify\config.json</code></td>
+              <td>本地后台地址、端口、通知和 hook 配置；token 存在单独文件。</td>
+            </tr>
+            <tr>
+              <td><code>scripts/hooks/codex-hook.template.json</code></td>
+              <td>Codex hook 合并参考模板；当前 Hook Manager 生成等价配置并展开绝对路径。</td>
+            </tr>
+            <tr>
+              <td><code>%LOCALAPPDATA%\AgentNotify\hooks\agent-notify-hook.ps1</code></td>
+              <td>运行时安装副本，Claude/Codex 用户配置实际调用它。</td>
+            </tr>
+            <tr>
+              <td><code>%LOCALAPPDATA%\AgentNotify\backups\</code></td>
+              <td>Hook Manager 修改用户配置前的自动备份目录。</td>
+            </tr>
+            <tr>
+              <td><code>%LOCALAPPDATA%\AgentNotify\logs\hook.log</code></td>
+              <td>只记录 hook 自身错误，不写完整终端输出。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>事件到通知的映射</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>eventType</th>
+            <th>含义</th>
+            <th>通知</th>
+            <th>后台状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>task.completed</code></td>
+            <td>任务完成或进程正常退出。</td>
+            <td><span class="tag info">弹通知</span></td>
+            <td><code>completed</code></td>
+          </tr>
+          <tr>
+            <td><code>task.failed</code></td>
+            <td>进程异常退出或 hook 映射失败。</td>
+            <td><span class="tag error">弹通知</span></td>
+            <td><code>failed</code></td>
+          </tr>
+          <tr>
+            <td><code>user.confirmation_required</code></td>
+            <td>需要批准命令、权限或工具调用。</td>
+            <td><span class="tag warn">高优先级</span></td>
+            <td><code>waiting_user</code></td>
+          </tr>
+          <tr>
+            <td><code>user.input_required</code></td>
+            <td>需要用户继续输入下一步。</td>
+            <td><span class="tag warn">高优先级</span></td>
+            <td><code>waiting_user</code></td>
+          </tr>
+          <tr>
+            <td><code>tool.blocked</code></td>
+            <td>权限、沙箱、网络或工具调用被阻塞。</td>
+            <td><span class="tag error">弹通知</span></td>
+            <td><code>waiting_user</code> 或 <code>failed</code></td>
+          </tr>
+          <tr>
+            <td><code>heartbeat</code></td>
+            <td>会话仍存活。</td>
+            <td><span class="tag ok">不弹</span></td>
+            <td><code>running</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>通知样式设计</h2>
+      <div class="grid-3">
+        <div class="card">
+          <h3>需要确认</h3>
+          <p><strong>标题：</strong>Claude/Codex 需要确认</p>
+          <p><strong>正文：</strong>项目名 · 会话名 · 点击返回终端</p>
+          <p><strong>详情：</strong>只显示脱敏摘要，例如 Bash 请求执行命令，参数已隐藏。</p>
+        </div>
+        <div class="card">
+          <h3>等待输入</h3>
+          <p><strong>标题：</strong>Claude/Codex 等待输入</p>
+          <p><strong>正文：</strong>项目名 · 当前会话 · 需要你的下一步</p>
+          <p><strong>详情：</strong>默认不显示模型完整问题。</p>
+        </div>
+        <div class="card">
+          <h3>完成或失败</h3>
+          <p><strong>标题：</strong>任务完成 / 执行受阻</p>
+          <p><strong>正文：</strong>项目名 · 当前会话 · 点击查看结果</p>
+          <p><strong>详情：</strong>只显示退出码或失败类别。</p>
+        </div>
+      </div>
+      <p class="note" style="margin-top: 14px;">
+        当前 Windows MVP 只承诺展示 Toast 文本；点击通知主体打开窗口、忽略和静音此项目均待 Tauri/Toast 集成，不在通知里批准命令。
+      </p>
+    </section>
+
+    <section class="grid-2">
+      <div class="panel">
+        <h2>标准事件示例</h2>
+        <pre><code>{
+  "version": 1,
+  "eventId": "uuid",
+  "eventType": "user.confirmation_required",
+  "severity": "warning",
+  "tool": "claude",
+  "sessionId": "claude-backend-20260510-153012",
+  "project": {
+    "cwd": "D:\\repo\\project",
+    "name": "project"
+  },
+  "process": {
+    "pid": 12345,
+    "parentPid": 8888
+  },
+  "window": {
+    "title": "AI-MONITOR:session-id",
+    "hwnd": null,
+    "terminal": "WindowsTerminal"
+  },
+  "message": {
+    "title": "Claude 需要确认",
+    "body": "backend 会话正在等待你处理",
+    "detail": "可选的简短确认摘要"
+  }
+}</code></pre>
+      </div>
+
+      <div class="panel">
+        <h2>离线处理</h2>
+        <div class="path">
+          <span class="step">hook 生成事件</span>
+          <span class="arrow">-></span>
+          <span class="step">尝试发送后台</span>
+          <span class="arrow">-></span>
+          <span class="step">后台不可用</span>
+          <span class="arrow">-></span>
+          <span class="step">直接丢弃</span>
+        </div>
+        <ul class="compact-list">
+          <li>hook 默认 2 秒内结束。</li>
+          <li>后台不可用时默认不重试。</li>
+          <li>失败不阻塞 Claude/Codex 主流程。</li>
+          <li>hook 默认退出码为 0。</li>
+          <li>不写离线队列，不补发过期通知。</li>
+        </ul>
+        <div class="note" style="margin-top: 14px;">
+          离线事件全部丢弃，避免后台恢复后突然弹出一批过期通知。
+        </div>
+      </div>
+    </section>
+
+    <section class="grid-3">
+      <div class="card">
+        <h3>隐私默认值</h3>
+        <p>通知只显示工具名、项目名、事件类型和简短状态。</p>
+        <ul class="compact-list">
+          <li>不显示完整命令</li>
+          <li>不显示完整终端输出</li>
+          <li><code>message.detail</code> 最多 160 字符</li>
+          <li>默认不持久化 raw payload</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>禁止动作</h3>
+        <p>hook 只上报状态，不代表用户做决定。</p>
+        <ul class="compact-list">
+          <li>不自动批准权限请求</li>
+          <li>不执行额外命令</li>
+          <li>不上传 payload</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>唤窗策略</h3>
+        <p>当前通过 HTTP focus 按 HWND 定位窗口；点击通知和多级 fallback 待实现。</p>
+        <ul class="compact-list">
+          <li>HWND</li>
+          <li>PID 待实现</li>
+          <li>唯一窗口标题待实现</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>监听开关</h3>
+        <p>当前监听状态只在启动时读取配置；应用内监听开关待 Tauri UI 实现。</p>
+        <ul class="compact-list">
+          <li>监听开启：接收 hook 事件</li>
+          <li>监听关闭：事件直接丢弃</li>
+          <li>后台离线：不补发通知</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>需要你确认的判断点</h2>
+      <ul class="decision-list">
+        <li class="decision">
+          <input type="checkbox" aria-label="确认 hook 不直接发通知">
+          <div>
+            <h3>Hook 是否只负责上报，不直接调用 Windows Toast？</h3>
+            <p>当前逻辑把通知能力集中在 <code>agent-notify-tray</code> 后台，方便统一去重和安全策略；点击回调待实现。</p>
+          </div>
+        </li>
+        <li class="decision">
+          <input type="checkbox" aria-label="确认 Codex 第一版能力">
+          <div>
+            <h3>Codex 是否优先使用官方 lifecycle hooks？</h3>
+            <p>当前逻辑使用 <code>PermissionRequest</code>、<code>Stop</code>、<code>PostToolUse</code> 映射到统一通知事件。</p>
+          </div>
+        </li>
+        <li class="decision">
+          <input type="checkbox" aria-label="确认本地事件入口">
+          <div>
+            <h3>事件入口是否接受 <code>agent-notify emit --stdin</code> 和带 token 的本地 HTTP？</h3>
+            <p>CLI 入口更适合 hook 调用；HTTP 入口更方便调试，但必须带本地 token。</p>
+          </div>
+        </li>
+        <li class="decision">
+          <input type="checkbox" aria-label="确认离线丢弃">
+          <div>
+            <h3>后台离线或监听关闭时，是否直接丢弃事件？</h3>
+            <p>当前逻辑不写离线队列，不补发过期通知，避免恢复后刷屏。</p>
+          </div>
+        </li>
+        <li class="decision">
+          <input type="checkbox" aria-label="确认通知内容安全">
+          <div>
+            <h3>通知默认是否隐藏完整命令和敏感 payload？</h3>
+            <p>当前逻辑只展示简短摘要，完整处理仍回到终端窗口完成。</p>
+          </div>
+        </li>
+      </ul>
+    </section>
+  </main>
+
+  <script>
+    const defaultChoices = {
+      source: "hybrid",
+      transport: "cli",
+      notify: "tauri",
+      focus: "external",
+      codex: "codex-hooks"
+    };
+
+    const storageKey = "agentNotifyChoices.v2";
+
+    const labels = {
+      source: "事件来源",
+      transport: "触发方式",
+      notify: "通知实现",
+      focus: "点击唤窗",
+      codex: "Codex 边界"
+    };
+
+    const routeNames = {
+      hybrid: "Claude hook / Codex hooks",
+      wrapper: "agentrun wrapper",
+      terminal: "内置终端",
+      cli: "agent-notify emit",
+      http: "localhost HTTP",
+      "direct-toast": "直接 Toast",
+      dotnet: ".NET Toast 后台",
+      powershell: "PowerShell 通知",
+      tauri: "本地后台/Tauri 待接入",
+      external: "外部终端唤起",
+      "session-detail": "session 详情",
+      separate: "独立窗口唤起",
+      tabs: "Terminal 窗口唤起",
+      embedded: "内置会话",
+      "codex-hooks": "Codex hooks"
+    };
+
+    function getChoices() {
+      const choices = {};
+      Object.keys(defaultChoices).forEach((group) => {
+        const checked = document.querySelector(`input[name="${group}"]:checked`);
+        choices[group] = checked ? checked.value : defaultChoices[group];
+      });
+      return choices;
+    }
+
+    function setChoices(choices) {
+      Object.entries(choices).forEach(([group, value]) => {
+        const input = document.querySelector(`input[name="${group}"][value="${value}"]`);
+        if (input) input.checked = true;
+      });
+    }
+
+    function selectedInput(group) {
+      return document.querySelector(`input[name="${group}"]:checked`);
+    }
+
+    function updateOptionCards() {
+      document.querySelectorAll(".option-card").forEach((card) => {
+        const input = card.querySelector("input[type='radio']");
+        card.classList.toggle("selected", Boolean(input && input.checked));
+      });
+    }
+
+    function updateSummary() {
+      const choices = getChoices();
+      localStorage.setItem(storageKey, JSON.stringify(choices));
+      updateOptionCards();
+
+      const route = document.getElementById("route-preview");
+      route.innerHTML = "";
+      [
+        choices.source,
+        choices.transport,
+        choices.notify,
+        choices.focus
+      ].forEach((value, index, values) => {
+        const step = document.createElement("span");
+        step.className = "step";
+        step.textContent = routeNames[value] || value;
+        route.appendChild(step);
+        if (index < values.length - 1) {
+          const arrow = document.createElement("span");
+          arrow.className = "arrow";
+          arrow.textContent = "->";
+          route.appendChild(arrow);
+        }
+      });
+
+      const summary = document.getElementById("choice-summary-lines");
+      summary.innerHTML = "";
+      Object.keys(defaultChoices).forEach((group) => {
+        const input = selectedInput(group);
+        const line = document.createElement("div");
+        line.className = "summary-line";
+        line.innerHTML = `<b>${labels[group]}</b><span>${input.dataset.title}<br>${input.dataset.summary}</span>`;
+        summary.appendChild(line);
+      });
+
+      const risks = document.getElementById("choice-risks");
+      risks.innerHTML = "";
+      Object.keys(defaultChoices).forEach((group) => {
+        const input = selectedInput(group);
+        const item = document.createElement("li");
+        item.textContent = input.dataset.risk;
+        risks.appendChild(item);
+      });
+
+      const sequence = document.createElement("li");
+      sequence.innerHTML = "<strong>建议实施顺序：</strong>已完成后端事件入口、hook 安装和通知模板；下一步补齐 Tauri 托盘 UI、Toast deep link 和 PID/标题唤窗 fallback。";
+      risks.appendChild(sequence);
+    }
+
+    function copySelection() {
+      const lines = ["Hook 通知方案选择："];
+      Object.keys(defaultChoices).forEach((group) => {
+        const input = selectedInput(group);
+        lines.push(`- ${labels[group]}：${input.dataset.title}`);
+      });
+      const text = lines.join("\n");
+      const done = () => {
+        const button = document.getElementById("copy-selection");
+        const oldText = button.textContent;
+        button.textContent = "已复制";
+        window.setTimeout(() => {
+          button.textContent = oldText;
+        }, 1200);
+      };
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+        return;
+      }
+
+      fallbackCopy(text, done);
+    }
+
+    function fallbackCopy(text, done) {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      done();
+    }
+
+    function resetSelection() {
+      setChoices(defaultChoices);
+      updateSummary();
+    }
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+      if (saved) setChoices(saved);
+    } catch {
+      setChoices(defaultChoices);
+    }
+
+    document.querySelectorAll(".option-card input").forEach((input) => {
+      input.addEventListener("change", updateSummary);
+    });
+
+    document.getElementById("copy-selection").addEventListener("click", copySelection);
+    document.getElementById("reset-selection").addEventListener("click", resetSelection);
+    updateSummary();
+  </script>
+</body>
+</html>
