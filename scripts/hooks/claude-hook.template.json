@@ -1,0 +1,101 @@
+{
+  "id": "agent-notify.claude",
+  "managedBy": "agent-notify",
+  "version": 1,
+  "requiresInstallExpansion": true,
+  "hookPathPlaceholder": "{{agentNotifyHookPath}}",
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "id": "agent-notify.claude.permission-request",
+        "managedBy": "agent-notify",
+        "matcher": "*",
+        "hooks": [
+          {
+            "id": "agent-notify.claude.permission-request.handler",
+            "managedBy": "agent-notify",
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool claude --hook-event PermissionRequest",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "id": "agent-notify.claude.stop",
+        "managedBy": "agent-notify",
+        "hooks": [
+          {
+            "id": "agent-notify.claude.stop.handler",
+            "managedBy": "agent-notify",
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool claude --hook-event Stop",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "id": "agent-notify.claude.stop-failure",
+        "managedBy": "agent-notify",
+        "hooks": [
+          {
+            "id": "agent-notify.claude.stop-failure.handler",
+            "managedBy": "agent-notify",
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool claude --hook-event StopFailure",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "id": "agent-notify.claude.notification",
+        "managedBy": "agent-notify",
+        "hooks": [
+          {
+            "id": "agent-notify.claude.notification.handler",
+            "managedBy": "agent-notify",
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool claude --hook-event Notification",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "id": "agent-notify.claude.post-tool-use-failure",
+        "managedBy": "agent-notify",
+        "matcher": "*",
+        "hooks": [
+          {
+            "id": "agent-notify.claude.post-tool-use-failure.handler",
+            "managedBy": "agent-notify",
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool claude --hook-event PostToolUseFailure",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "id": "agent-notify.claude.session-end",
+        "managedBy": "agent-notify",
+        "hooks": [
+          {
+            "id": "agent-notify.claude.session-end.handler",
+            "managedBy": "agent-notify",
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool claude --hook-event SessionEnd",
+            "timeout": 2
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+/target/
+/dist/
+/build/
+/.tauri/
+/.env
+*.log
+*.tmp
+

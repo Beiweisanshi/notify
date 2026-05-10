@@ -1,0 +1,77 @@
+{
+  "id": "agent-notify.codex",
+  "managedBy": "agent-notify",
+  "version": 1,
+  "scope": "user-hooks-json",
+  "requiresInstallExpansion": true,
+  "hookPathPlaceholder": "{{agentNotifyHookPath}}",
+  "hooks": {
+    "SessionStart": [
+      {
+        "id": "agent-notify.codex.session-start",
+        "managedBy": "agent-notify",
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "id": "agent-notify.codex.session-start.handler",
+            "managedBy": "agent-notify",
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool codex --hook-event SessionStart",
+            "timeout": 2,
+            "statusMessage": "Agent Notify"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "id": "agent-notify.codex.permission-request",
+        "managedBy": "agent-notify",
+        "matcher": "*",
+        "hooks": [
+          {
+            "id": "agent-notify.codex.permission-request.handler",
+            "managedBy": "agent-notify",
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool codex --hook-event PermissionRequest",
+            "timeout": 2,
+            "statusMessage": "Agent Notify"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "id": "agent-notify.codex.post-tool-use",
+        "managedBy": "agent-notify",
+        "matcher": "*",
+        "hooks": [
+          {
+            "id": "agent-notify.codex.post-tool-use.handler",
+            "managedBy": "agent-notify",
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool codex --hook-event PostToolUse",
+            "timeout": 2,
+            "statusMessage": "Agent Notify"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "id": "agent-notify.codex.stop",
+        "managedBy": "agent-notify",
+        "hooks": [
+          {
+            "id": "agent-notify.codex.stop.handler",
+            "managedBy": "agent-notify",
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool codex --hook-event Stop",
+            "timeout": 2,
+            "statusMessage": "Agent Notify"
+          }
+        ]
+      }
+    ]
+  }
+}
