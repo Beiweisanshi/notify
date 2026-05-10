@@ -7,7 +7,7 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use toml_edit::{DocumentMut, Item, Table, value};
 
 pub const MANAGED_BY: &str = "agent-notify";
@@ -139,7 +139,7 @@ pub fn install_or_repair(paths: &HookInstallPaths) -> Result<HookInstallReport, 
 }
 
 pub fn check_cli(name: &str, args: &[&str]) -> HookStatus {
-    match Command::new(name).args(args).output() {
+    match run_command(name, args) {
         Ok(output) if output.status.success() => HookStatus::HookOk,
         Ok(_) => HookStatus::UnsupportedVersion,
         Err(error) if error.kind() == io::ErrorKind::NotFound => HookStatus::MissingCli,
@@ -148,7 +148,7 @@ pub fn check_cli(name: &str, args: &[&str]) -> HookStatus {
 }
 
 pub fn check_codex_hooks_feature() -> HookStatus {
-    match Command::new("codex").args(["features", "list"]).output() {
+    match run_command("codex", &["features", "list"]) {
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
             if stdout.contains("hooks")
@@ -165,6 +165,61 @@ pub fn check_codex_hooks_feature() -> HookStatus {
         Err(error) if error.kind() == io::ErrorKind::NotFound => HookStatus::MissingCli,
         Err(_) => HookStatus::InstallFailed,
     }
+}
+
+fn run_command(name: &str, args: &[&str]) -> io::Result<Output> {
+    match Command::new(name).args(args).output() {
+        Ok(output) => Ok(output),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            run_resolved_windows_command(name, args).unwrap_or(Err(error))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(windows)]
+fn run_resolved_windows_command(name: &str, args: &[&str]) -> Option<io::Result<Output>> {
+    let output = Command::new("where.exe").arg(name).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let path = PathBuf::from(line);
+        let extension = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let result = match extension.as_str() {
+            "exe" => Command::new(&path).args(args).output(),
+            "cmd" | "bat" => Command::new("cmd")
+                .arg("/D")
+                .arg("/C")
+                .arg(&path)
+                .args(args)
+                .output(),
+            "ps1" => Command::new("powershell")
+                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(&path)
+                .args(args)
+                .output(),
+            _ => continue,
+        };
+        if result.is_ok() {
+            return Some(result);
+        }
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn run_resolved_windows_command(_name: &str, _args: &[&str]) -> Option<io::Result<Output>> {
+    None
 }
 
 fn install_hook_script(paths: &HookInstallPaths) -> Result<(), HookManagerError> {
@@ -323,11 +378,14 @@ fn enable_codex_hooks_feature(path: &Path, backups_dir: &Path) -> Result<(), Hoo
     let features = document["features"]
         .as_table_mut()
         .ok_or_else(|| HookManagerError::ConfigParseFailed(path.into()))?;
-    if features.get("codex_hooks").and_then(Item::as_bool) == Some(true) {
+    let hooks_enabled = features.get("hooks").and_then(Item::as_bool) == Some(true);
+    let has_deprecated_key = features.contains_key("codex_hooks");
+    if hooks_enabled && !has_deprecated_key {
         return Ok(());
     }
     backup_if_exists("codex", path, backups_dir).map_err(|_| HookManagerError::BackupFailed)?;
-    features.insert("codex_hooks", value(true));
+    features.insert("hooks", value(true));
+    features.remove("codex_hooks");
     write_text_atomic(path, &document.to_string())?;
     Ok(())
 }
@@ -503,7 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn enables_codex_feature_without_removing_existing_toml() {
+    fn enables_codex_hooks_feature_without_removing_existing_toml() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
         fs::write(&path, "[model]\nname = \"gpt\"\n").unwrap();
@@ -512,6 +570,20 @@ mod tests {
         let text = fs::read_to_string(path).unwrap();
 
         assert!(text.contains("[model]"));
-        assert!(text.contains("codex_hooks = true"));
+        assert!(text.contains("hooks = true"));
+        assert!(!text.contains("codex_hooks"));
+    }
+
+    #[test]
+    fn migrates_deprecated_codex_hooks_feature_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "[features]\ncodex_hooks = true\n").unwrap();
+
+        enable_codex_hooks_feature(&path, dir.path()).unwrap();
+        let text = fs::read_to_string(path).unwrap();
+
+        assert!(text.contains("hooks = true"));
+        assert!(!text.contains("codex_hooks"));
     }
 }

@@ -172,7 +172,7 @@ agent-notify-tray repair-hooks
 检查流程包括：
 
 - 执行 `claude --version`、`codex --version` 和 `codex features list`。
-- 确认 Codex 使用支持官方 lifecycle hooks 的版本；如果需要，写入 `%USERPROFILE%\.codex\config.toml` 启用 `codex_hooks`。
+- 确认 Codex 使用支持官方 lifecycle hooks 的版本；如果需要，写入 `%USERPROFILE%\.codex\config.toml` 启用 `hooks`。
 - 将 `agent-notify-hook.ps1` 安装到 `%LOCALAPPDATA%\AgentNotify\hooks\`，并生成 `manifest.json` 记录版本、事件列表和 SHA-256。
 - 修改 Claude/Codex 用户级配置前，备份到 `%LOCALAPPDATA%\AgentNotify\backups\<tool>\`。
 - 只合并带 `managedBy: agent-notify` 和稳定 id 的配置块；保留用户已有 hooks。
@@ -180,6 +180,8 @@ agent-notify-tray repair-hooks
 - 写入临时文件并校验 JSON/TOML 后替换目标文件。
 
 当前 Hook Manager 已做备份和幂等合并，但还没有完整 ACL 加固、备份保留策略、失败自动回滚恢复和真实 Claude/Codex 触发后校验。
+
+Codex 首次发现新 hook 时可能提示 `hooks need review`。这是 Codex 的安全审核机制；安装器只负责写入可审核的用户级配置，不自动批准。看到提示后，在 Codex 中打开 `/hooks`，确认这 4 个 `agent-notify` hook 命令都指向 `%LOCALAPPDATA%\AgentNotify\hooks\agent-notify-hook.ps1` 的展开后绝对路径，再手动批准。
 
 Claude/Codex hook 命令指向安装器展开后的运行时绝对路径，例如：
 

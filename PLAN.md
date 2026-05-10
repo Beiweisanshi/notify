@@ -15,7 +15,7 @@
 - `agent-notify-tray`：当前是 Axum localhost 后台，不是完整 Tauri 托盘 UI。支持 `serve`、`check-hooks`、`repair-hooks`，提供 `POST /events`、`GET /sessions`、`POST /focus/{sessionId}`，所有路由都要求 Bearer token。`AGENT_NOTIFY_HOME` 可覆盖运行时根目录。
 - Windows Toast：当前通过 PowerShell Windows Runtime Toast 展示标题、正文和详情；未实现点击回调、deep link、activation nonce 或 Toast 按钮。
 - `/focus/{sessionId}`：当前只在 session 里有 HWND 时尝试 `ShowWindow` + `SetForegroundWindow`；PID、父 PID、进程树、窗口标题 fallback 和 session 详情页未实现。
-- Hook Manager：已复制运行时 hook、生成 manifest、备份并合并 Claude/Codex 用户级配置、启用 Codex `codex_hooks`，并写入展开后的绝对 hook 路径。ACL 加固、备份保留清理、失败自动回滚恢复和真实触发验证仍未实现。
+- Hook Manager：已复制运行时 hook、生成 manifest、备份并合并 Claude/Codex 用户级配置、启用 Codex `hooks` feature，并写入展开后的绝对 hook 路径。ACL 加固、备份保留清理、失败自动回滚恢复和真实触发验证仍未实现。
 - `agentrun`、完整 Tauri 托盘 UI、运行时监听开关、静音入口和 session 面板仍是后续计划。
 
 ## 使用场景
@@ -363,7 +363,7 @@ PostToolUse
 
 ```toml
 [features]
-codex_hooks = true
+hooks = true
 ```
 
 安装完成后必须用一次真实 Codex hook 触发验证，确认直接运行 `codex` 会加载用户级 hooks。

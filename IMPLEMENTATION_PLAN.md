@@ -35,7 +35,7 @@ codex features list   hooks stable true
 - 所有 localhost 路由都要求 Bearer token；token 默认在 `%LOCALAPPDATA%\AgentNotify\token`，也可通过 `AGENT_NOTIFY_TOKEN` 传给 CLI。`AGENT_NOTIFY_HOME` 可覆盖运行时根目录。
 - 后台维护内存 session 表和 30 秒去重窗口，按通知策略发 Windows Toast；当前 Toast 没有点击回调。
 - `/focus/{sessionId}` 当前只在事件携带 HWND 时尝试 `SetForegroundWindow`，未实现 PID、父进程、窗口标题 fallback，也未打开 session 详情页。
-- Hook Manager 会复制 `agent-notify-hook.ps1` 到运行时目录、生成 manifest、备份并合并 Claude/Codex 用户级 hook 配置、启用 Codex `codex_hooks`。
+- Hook Manager 会复制 `agent-notify-hook.ps1` 到运行时目录、生成 manifest、备份并合并 Claude/Codex 用户级 hook 配置、启用 Codex `hooks` feature。
 - 当前还未实现完整 ACL 加固、备份保留策略、失败后自动回滚恢复、Tauri 托盘 UI、运行时监听开关、deep link activation nonce、Toast 按钮和 `agentrun`。
 
 ## 交付物
@@ -216,7 +216,7 @@ Codex 只支持最新版官方 hooks。安装器必须通过 `codex features lis
 
 ```toml
 [features]
-codex_hooks = true
+hooks = true
 ```
 
 Codex hook 模板必须使用三层结构：`event -> matcher group -> hooks[] -> handler`，并明确 `timeout` 和 `statusMessage`。`PermissionRequest`、`PostToolUse` matcher 过滤 tool name；`SessionStart` matcher 过滤启动来源；`Stop` 不使用 matcher。
