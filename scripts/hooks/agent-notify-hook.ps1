@@ -290,9 +290,9 @@ function Get-AgentNotifyAncestorWindowInfo {
     param([int]$ProcessId)
 
     return Walk-AgentNotifyAncestors -StartPid $ProcessId -Predicate {
-        param([int]$Pid)
+        param([int]$AncestorPid)
 
-        $processInfo = Get-AgentNotifyProcessInfo -ProcessId $Pid
+        $processInfo = Get-AgentNotifyProcessInfo -ProcessId $AncestorPid
         if ($null -eq $processInfo) {
             return $null
         }
@@ -301,7 +301,7 @@ function Get-AgentNotifyAncestorWindowInfo {
         $hwnd = [int64]$processInfo.MainWindowHandle
         if ($hwnd -ne 0 -and ($processName -notmatch '^explorer$' -or -not [string]::IsNullOrWhiteSpace($title))) {
             return [ordered]@{
-                pid = $Pid
+                pid = $AncestorPid
                 processName = $processName
                 title = $title
                 hwnd = $hwnd
@@ -397,14 +397,14 @@ function Find-AgentNotifyPseudoConsoleByAncestor {
     }
 
     return Walk-AgentNotifyAncestors -StartPid $ProcessId -Predicate {
-        param([int]$Pid)
+        param([int]$AncestorPid)
 
-        $processInfo = Get-AgentNotifyProcessInfo -ProcessId $Pid
+        $processInfo = Get-AgentNotifyProcessInfo -ProcessId $AncestorPid
         if ($null -eq $processInfo -or $processInfo.ProcessName -notmatch $script:AgentNotifyShellProcessNamePattern) {
             return $null
         }
         try {
-            $hwnds = [AgentNotify.ConsoleWindow]::FindWindowsByPid([uint32]$Pid)
+            $hwnds = [AgentNotify.ConsoleWindow]::FindWindowsByPid([uint32]$AncestorPid)
             foreach ($h in $hwnds) {
                 $cls = New-Object System.Text.StringBuilder 256
                 [void][AgentNotify.ConsoleWindow]::GetClassNameW([IntPtr]$h, $cls, 256)
@@ -413,7 +413,7 @@ function Find-AgentNotifyPseudoConsoleByAncestor {
                     [void][AgentNotify.ConsoleWindow]::GetWindowTextW([IntPtr]$h, $title, 512)
                     return [ordered]@{
                         hwnd = [int64]$h
-                        pid = [int]$Pid
+                        pid = [int]$AncestorPid
                         title = $title.ToString()
                         className = 'PseudoConsoleWindow'
                     }
@@ -1132,6 +1132,12 @@ try {
 }
 catch {
     $logCode = 'unexpected'
+    try {
+        $errMsg = $_.Exception.Message
+        $errPos = $_.InvocationInfo.PositionMessage
+        Write-AgentNotifyDebug -Message "unexpected exception=$errMsg pos=$errPos"
+    } catch {
+    }
 }
 finally {
     $stopwatch.Stop()
