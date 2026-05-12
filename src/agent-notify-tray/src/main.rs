@@ -796,10 +796,7 @@ async fn notify_event(
     let Some(view) = notification_view(event) else {
         return false;
     };
-    if let Some(notification) = floating_notification
-        && floating_ui_active(state).await
-        && floating_notification_visible_in_ui(state, &notification.notification_id).await
-    {
+    if floating_notification.is_some() && floating_ui_active(state).await {
         return true;
     }
     let activation = if cfg!(windows) {
@@ -820,14 +817,6 @@ async fn floating_ui_active(state: &AppState) -> bool {
         .lock()
         .await
         .is_some_and(|last_seen| last_seen.elapsed() <= FLOATING_UI_ACTIVE_TTL)
-}
-
-async fn floating_notification_visible_in_ui(state: &AppState, notification_id: &str) -> bool {
-    floating_status_snapshot(state)
-        .await
-        .notifications
-        .iter()
-        .any(|notification| notification.notification_id == notification_id)
 }
 
 async fn register_activation(state: &AppState, event: &AgentEvent) -> ActivationRegistration {
@@ -1840,39 +1829,6 @@ mod tests {
         assert_eq!(response.dismissed_count, 1);
         assert!(notifications.get("n1").unwrap().clicked_at.is_some());
         assert!(notifications.get("n2").unwrap().clicked_at.is_none());
-    }
-
-    #[tokio::test]
-    async fn floating_notification_visible_only_when_snapshot_exposes_it() {
-        let state = test_state();
-        let mut waiting = test_visible_session("s2");
-        waiting.status = SessionStatus::WaitingUser;
-        state
-            .sessions
-            .lock()
-            .await
-            .insert("s1".to_string(), test_visible_session("s1"));
-        state
-            .sessions
-            .lock()
-            .await
-            .insert("s2".to_string(), waiting);
-        state
-            .notifications
-            .lock()
-            .await
-            .insert("n1".to_string(), test_notification("n1", "s1"));
-        state.notifications.lock().await.insert(
-            "n2".to_string(),
-            FloatingNotificationRecord {
-                event_type: EventType::UserInputRequired,
-                ..test_notification("n2", "s2")
-            },
-        );
-
-        assert!(floating_notification_visible_in_ui(&state, "n1").await);
-        assert!(!floating_notification_visible_in_ui(&state, "n2").await);
-        assert!(!floating_notification_visible_in_ui(&state, "missing").await);
     }
 
     #[test]
