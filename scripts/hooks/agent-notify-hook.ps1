@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'SilentlyContinue'
+﻿$ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
 $VerbosePreference = 'SilentlyContinue'
 $DebugPreference = 'SilentlyContinue'
@@ -143,9 +143,15 @@ function Get-AgentNotifyInt {
         return $null
     }
 
-    $number = 0
-    if ([int]::TryParse($text, [ref]$number)) {
+    $number = [int64]0
+    if ([int64]::TryParse($text, [ref]$number)) {
         return $number
+    }
+    if ($text.StartsWith('0x', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $hex = $text.Substring(2)
+        if ([int64]::TryParse($hex, [System.Globalization.NumberStyles]::HexNumber, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$number)) {
+            return $number
+        }
     }
 
     return $null
@@ -243,6 +249,181 @@ function Get-AgentNotifyProcessInfo {
     }
 
     return Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+}
+
+function Walk-AgentNotifyAncestors {
+    param(
+        [int]$StartPid,
+        [scriptblock]$Predicate
+    )
+
+    if ($StartPid -le 0 -or $null -eq $Predicate) {
+        return $null
+    }
+
+    $seen = @{}
+    $currentPid = $StartPid
+    for ($i = 0; $i -lt 12; $i++) {
+        if ($null -eq $currentPid -or $currentPid -le 0 -or $seen.ContainsKey($currentPid)) {
+            break
+        }
+        $seen[$currentPid] = $true
+
+        $outcome = & $Predicate $currentPid
+        if ($null -ne $outcome) {
+            if ($outcome -is [hashtable] -and $outcome['Stop']) {
+                return $null
+            }
+            return $outcome
+        }
+
+        $parentPid = Get-AgentNotifyParentPid -ProcessId $currentPid
+        if ($null -eq $parentPid -or $parentPid -eq $currentPid) {
+            break
+        }
+        $currentPid = $parentPid
+    }
+    return $null
+}
+
+function Get-AgentNotifyAncestorWindowInfo {
+    param([int]$ProcessId)
+
+    return Walk-AgentNotifyAncestors -StartPid $ProcessId -Predicate {
+        param([int]$Pid)
+
+        $processInfo = Get-AgentNotifyProcessInfo -ProcessId $Pid
+        if ($null -eq $processInfo) {
+            return $null
+        }
+        $processName = $processInfo.ProcessName
+        $title = $processInfo.MainWindowTitle
+        $hwnd = [int64]$processInfo.MainWindowHandle
+        if ($hwnd -ne 0 -and ($processName -notmatch '^explorer$' -or -not [string]::IsNullOrWhiteSpace($title))) {
+            return [ordered]@{
+                pid = $Pid
+                processName = $processName
+                title = $title
+                hwnd = $hwnd
+            }
+        }
+        if ($processName -match '^explorer$') {
+            return @{ Stop = $true }
+        }
+        return $null
+    }
+}
+
+$script:AgentNotifyConsoleWindowTypeReady = $false
+
+$script:AgentNotifyShellProcessNamePattern = '^(powershell|pwsh|cmd|conhost|openconsole|wt|windowsterminal)$'
+
+function Initialize-AgentNotifyConsoleWindowType {
+    if ($script:AgentNotifyConsoleWindowTypeReady) {
+        return $true
+    }
+    try {
+        if (-not ('AgentNotify.ConsoleWindow' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Collections.Generic;
+namespace AgentNotify {
+    public static class ConsoleWindow {
+        public delegate bool EnumDelegate(IntPtr hWnd, IntPtr lParam);
+        [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+        [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+        [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+        [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassNameW(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+        [DllImport("user32.dll")] public static extern bool EnumWindows(EnumDelegate lpEnumFunc, IntPtr lParam);
+        [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
+        public static List<long> FindWindowsByPid(uint pid) {
+            var found = new List<long>();
+            EnumWindows((h, l) => {
+                uint owner;
+                GetWindowThreadProcessId(h, out owner);
+                if (owner == pid) {
+                    found.Add(h.ToInt64());
+                }
+                return true;
+            }, IntPtr.Zero);
+            return found;
+        }
+    }
+}
+'@ -ErrorAction Stop
+        }
+        $script:AgentNotifyConsoleWindowTypeReady = $true
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-AgentNotifyConsoleWindowInfo {
+    if (-not (Initialize-AgentNotifyConsoleWindowType)) {
+        return $null
+    }
+    try {
+        $hwnd = [AgentNotify.ConsoleWindow]::GetConsoleWindow()
+        if ($null -eq $hwnd -or [int64]$hwnd -eq 0) {
+            return $null
+        }
+        $ownerPid = 0
+        [void][AgentNotify.ConsoleWindow]::GetWindowThreadProcessId($hwnd, [ref]$ownerPid)
+        $title = New-Object System.Text.StringBuilder 512
+        [void][AgentNotify.ConsoleWindow]::GetWindowTextW($hwnd, $title, 512)
+        $className = New-Object System.Text.StringBuilder 256
+        [void][AgentNotify.ConsoleWindow]::GetClassNameW($hwnd, $className, 256)
+        return [ordered]@{
+            hwnd = [int64]$hwnd
+            pid = [int]$ownerPid
+            title = $title.ToString()
+            className = $className.ToString()
+        }
+    }
+    catch {
+        return $null
+    }
+}
+
+function Find-AgentNotifyPseudoConsoleByAncestor {
+    param([int]$ProcessId)
+
+    if (-not (Initialize-AgentNotifyConsoleWindowType) -or $ProcessId -le 0) {
+        return $null
+    }
+
+    return Walk-AgentNotifyAncestors -StartPid $ProcessId -Predicate {
+        param([int]$Pid)
+
+        $processInfo = Get-AgentNotifyProcessInfo -ProcessId $Pid
+        if ($null -eq $processInfo -or $processInfo.ProcessName -notmatch $script:AgentNotifyShellProcessNamePattern) {
+            return $null
+        }
+        try {
+            $hwnds = [AgentNotify.ConsoleWindow]::FindWindowsByPid([uint32]$Pid)
+            foreach ($h in $hwnds) {
+                $cls = New-Object System.Text.StringBuilder 256
+                [void][AgentNotify.ConsoleWindow]::GetClassNameW([IntPtr]$h, $cls, 256)
+                if ($cls.ToString() -eq 'PseudoConsoleWindow') {
+                    $title = New-Object System.Text.StringBuilder 512
+                    [void][AgentNotify.ConsoleWindow]::GetWindowTextW([IntPtr]$h, $title, 512)
+                    return [ordered]@{
+                        hwnd = [int64]$h
+                        pid = [int]$Pid
+                        title = $title.ToString()
+                        className = 'PseudoConsoleWindow'
+                    }
+                }
+            }
+        }
+        catch {
+        }
+        return $null
+    }
 }
 
 function Resolve-AgentNotifyEventType {
@@ -357,13 +538,13 @@ function Get-AgentNotifyStateLabel {
     param([string]$EventType)
 
     switch ($EventType) {
-        'task.started' { return '会话开始' }
+        'task.started' { return '任务开始' }
         'task.completed' { return '任务完成' }
-        'task.failed' { return '执行失败' }
+        'task.failed' { return '任务失败' }
         'user.confirmation_required' { return '需要确认' }
         'user.input_required' { return '等待输入' }
-        'tool.blocked' { return '执行受阻' }
-        default { return '会话更新' }
+        'tool.blocked' { return '工具受阻' }
+        default { return '状态更新' }
     }
 }
 
@@ -391,14 +572,14 @@ function Get-AgentNotifyDetail {
         }
         'task.failed' {
             if ($null -ne $exitCode) {
-                return "执行失败，退出码 $exitCode。"
+                return "任务失败，退出码 $exitCode。"
             }
 
-            return '执行失败，详情已隐藏。'
+            return '任务失败；详情已隐藏。'
         }
         'tool.blocked' { return '权限、沙箱或工具调用被阻止。' }
-        'user.confirmation_required' { return '工具请求确认，参数已隐藏。' }
-        'user.input_required' { return '等待你的下一步输入，详情已隐藏。' }
+        'user.confirmation_required' { return '工具请求需要确认；参数已隐藏。' }
+        'user.input_required' { return '等待你的下一步输入；详情已隐藏。' }
         default { return '会话状态已更新。' }
     }
 }
@@ -411,7 +592,7 @@ function Get-AgentNotifyToolLabel {
         'codex' { return 'Codex' }
         default {
             if ([string]::IsNullOrWhiteSpace($Tool) -or $Tool -eq 'unknown') {
-                return '任务'
+                return 'Task'
             }
 
             return (Get-Culture).TextInfo.ToTitleCase($Tool)
@@ -431,6 +612,34 @@ function Read-AgentNotifyStdin {
     return ''
 }
 
+function Write-AgentNotifyLogLine {
+    param([string]$Line)
+
+    if ((Get-AgentNotifyEnvValue 'AGENT_NOTIFY_HOOK_LOG') -eq '0') {
+        return
+    }
+    $localAppData = Get-AgentNotifyEnvValue 'LOCALAPPDATA'
+    if ([string]::IsNullOrWhiteSpace($localAppData)) {
+        return
+    }
+    try {
+        $logDir = Join-Path $localAppData 'AgentNotify\logs'
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+        $logPath = Join-Path $logDir 'hook.log'
+        Add-Content -Path $logPath -Value $Line -Encoding UTF8
+    }
+    catch {
+    }
+}
+
+function Write-AgentNotifyDebug {
+    param([string]$Message)
+
+    $timestamp = (Get-Date).ToString('o')
+    $safe = Limit-AgentNotifyText -Text $Message -MaxLength 480
+    Write-AgentNotifyLogLine -Line "$timestamp component=hook-debug $safe"
+}
+
 function Write-AgentNotifyHookLog {
     param(
         [string]$Code,
@@ -438,27 +647,38 @@ function Write-AgentNotifyHookLog {
         [long]$ElapsedMs
     )
 
-    if ((Get-AgentNotifyEnvValue 'AGENT_NOTIFY_HOOK_LOG') -eq '0') {
-        return
-    }
+    $timestamp = (Get-Date).ToString('o')
+    $safeCode = Limit-AgentNotifyText -Text $Code -MaxLength 48
+    $safeEventType = Limit-AgentNotifyText -Text $EventType -MaxLength 64
+    Write-AgentNotifyLogLine -Line "$timestamp component=hook eventType=$safeEventType code=$safeCode elapsedMs=$ElapsedMs"
+}
 
-    $localAppData = Get-AgentNotifyEnvValue 'LOCALAPPDATA'
-    if ([string]::IsNullOrWhiteSpace($localAppData)) {
-        return
+function Resolve-AgentNotifyEmitter {
+    $override = Get-AgentNotifyEnvValue 'AGENT_NOTIFY_BIN'
+    if (-not [string]::IsNullOrWhiteSpace($override) -and (Test-Path -LiteralPath $override -PathType Leaf)) {
+        return $override
     }
 
     try {
-        $logDir = Join-Path $localAppData 'AgentNotify\logs'
-        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-        $logPath = Join-Path $logDir 'hook.log'
-        $timestamp = (Get-Date).ToString('o')
-        $safeCode = Limit-AgentNotifyText -Text $Code -MaxLength 48
-        $safeEventType = Limit-AgentNotifyText -Text $EventType -MaxLength 64
-        $line = "$timestamp component=hook eventType=$safeEventType code=$safeCode elapsedMs=$ElapsedMs"
-        Add-Content -Path $logPath -Value $line -Encoding UTF8
+        if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+            $runtimeDir = Split-Path -Parent $PSScriptRoot
+            $candidates = @(
+                (Join-Path $runtimeDir 'bin\agent-notify.exe'),
+                (Join-Path $runtimeDir 'agent-notify.exe'),
+                (Join-Path $PSScriptRoot 'agent-notify.exe')
+            )
+
+            foreach ($candidate in $candidates) {
+                if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+                    return $candidate
+                }
+            }
+        }
     }
     catch {
     }
+
+    return 'agent-notify'
 }
 
 function Invoke-AgentNotifyEmit {
@@ -479,7 +699,7 @@ function Invoke-AgentNotifyEmit {
         [Console]::InputEncoding = $utf8NoBom
 
         $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-        $startInfo.FileName = 'agent-notify'
+        $startInfo.FileName = Resolve-AgentNotifyEmitter
         $startInfo.Arguments = 'emit --stdin'
         $startInfo.UseShellExecute = $false
         $startInfo.RedirectStandardInput = $true
@@ -614,20 +834,28 @@ function New-AgentNotifyEvent {
         'session_id',
         'session.id',
         'session.uuid',
+        'conversation.id',
         'conversationId',
         'conversation_id',
         'codexSessionId',
         'claudeSessionId',
+        'thread.id',
+        'threadId',
+        'thread_id',
         'runId',
         'run_id'
     )
     if ([string]::IsNullOrWhiteSpace($sessionId)) {
         $sessionId = Get-AgentNotifyEnvValue 'AGENT_NOTIFY_SESSION_ID'
     }
-    if ([string]::IsNullOrWhiteSpace($sessionId)) {
-        $sessionSeed = Get-AgentNotifyHash "$tool|$cwd"
-        $sessionId = "$tool-$($sessionSeed.Substring(0, 16))"
-    }
+    $payloadTranscriptPath = Get-AgentNotifyFirstScalar -Payload $Payload -Paths @(
+        'transcriptPath',
+        'transcript_path',
+        'session.transcriptPath',
+        'session.transcript_path',
+        'conversation.transcriptPath',
+        'conversation.transcript_path'
+    )
 
     $eventType = Resolve-AgentNotifyEventType -Tool $tool -HookEvent $hookEvent -ExplicitEvent $explicitEvent -Payload $Payload
     $severity = Get-AgentNotifySeverity -EventType $eventType
@@ -645,6 +873,7 @@ function New-AgentNotifyEvent {
     elseif ($eventType -eq 'task.started' -or $eventType -eq 'heartbeat') {
         $bodyAction = '会话运行中'
     }
+
 
     $messageTitle = Limit-AgentNotifyText -Text "$toolTitle $stateLabel" -MaxLength 120
     $messageBody = Limit-AgentNotifyText -Text "$projectName · 当前会话 · $bodyAction" -MaxLength 160
@@ -691,6 +920,30 @@ function New-AgentNotifyEvent {
     if ($null -ne $processInfo -and $null -ne $processInfo.StartTime) {
         $startedAt = $processInfo.StartTime.ToString('o')
     }
+    $consoleWindowInfo = Get-AgentNotifyConsoleWindowInfo
+    if ($null -eq $consoleWindowInfo) {
+        $consoleWindowInfo = Find-AgentNotifyPseudoConsoleByAncestor -ProcessId $eventPid
+    }
+    $consoleProbeHwnd = if ($null -ne $consoleWindowInfo) { [int64]$consoleWindowInfo.hwnd } else { 0 }
+    $consoleProbeClass = if ($null -ne $consoleWindowInfo) { $consoleWindowInfo.className } else { '<null>' }
+    $consoleProbePid = if ($null -ne $consoleWindowInfo) { [int]$consoleWindowInfo.pid } else { 0 }
+    Write-AgentNotifyDebug -Message "console_probe hwnd=$consoleProbeHwnd class=$consoleProbeClass pid=$consoleProbePid hookPid=$PID hookParent=$currentParentPid eventPid=$eventPid"
+    $windowProcessInfo = Get-AgentNotifyAncestorWindowInfo -ProcessId $eventPid
+    $windowPid = Get-AgentNotifyInt (Get-AgentNotifyFirstScalar -Payload $Payload -Paths @(
+        'window.pid',
+        'windowPid',
+        'terminal.pid',
+        'terminalPid'
+    ))
+    if ($null -eq $windowPid) {
+        $windowPid = Get-AgentNotifyInt (Get-AgentNotifyEnvValue 'AGENT_NOTIFY_WINDOW_PID')
+    }
+    if ($null -eq $windowPid -and $null -ne $consoleWindowInfo) {
+        $windowPid = Get-AgentNotifyInt $consoleWindowInfo.pid
+    }
+    if ($null -eq $windowPid -and $null -ne $windowProcessInfo) {
+        $windowPid = Get-AgentNotifyInt $windowProcessInfo.pid
+    }
 
     $windowTitle = Get-AgentNotifyFirstScalar -Payload $Payload -Paths @(
         'window.title',
@@ -700,6 +953,12 @@ function New-AgentNotifyEvent {
     )
     if ([string]::IsNullOrWhiteSpace($windowTitle)) {
         $windowTitle = Get-AgentNotifyEnvValue 'AGENT_NOTIFY_WINDOW_TITLE'
+    }
+    if ([string]::IsNullOrWhiteSpace($windowTitle) -and $null -ne $consoleWindowInfo) {
+        $windowTitle = $consoleWindowInfo.title
+    }
+    if ([string]::IsNullOrWhiteSpace($windowTitle) -and $null -ne $windowProcessInfo) {
+        $windowTitle = $windowProcessInfo.title
     }
     if ([string]::IsNullOrWhiteSpace($windowTitle) -and $null -ne $processInfo) {
         $windowTitle = $processInfo.MainWindowTitle
@@ -719,6 +978,12 @@ function New-AgentNotifyEvent {
     if ($null -eq $hwnd) {
         $hwnd = Get-AgentNotifyInt (Get-AgentNotifyEnvValue 'AGENT_NOTIFY_WINDOW_HWND')
     }
+    if (($null -eq $hwnd -or $hwnd -eq 0) -and $null -ne $consoleWindowInfo) {
+        $hwnd = [int64]$consoleWindowInfo.hwnd
+    }
+    if (($null -eq $hwnd -or $hwnd -eq 0) -and $null -ne $windowProcessInfo) {
+        $hwnd = $windowProcessInfo.hwnd
+    }
     if (($null -eq $hwnd -or $hwnd -eq 0) -and $null -ne $processInfo -and $processInfo.MainWindowHandle -ne 0) {
         $hwnd = [int64]$processInfo.MainWindowHandle
     }
@@ -736,6 +1001,9 @@ function New-AgentNotifyEvent {
         if ($null -ne $processInfo) {
             $processName = $processInfo.ProcessName
         }
+        if ($null -ne $windowProcessInfo -and -not [string]::IsNullOrWhiteSpace($windowProcessInfo.processName)) {
+            $processName = $windowProcessInfo.processName
+        }
         if ($processName -match 'WindowsTerminal') {
             $terminal = 'WindowsTerminal'
         }
@@ -748,6 +1016,36 @@ function New-AgentNotifyEvent {
         elseif ($windowTitle -match 'Windows Terminal') {
             $terminal = 'WindowsTerminal'
         }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($sessionId)) {
+        $sessionIdentityParts = @($tool, $cwd)
+        $hasStableIdentity = $false
+        if ($null -ne $eventPid) {
+            $sessionIdentityParts += "pid:$eventPid"
+            $hasStableIdentity = $true
+        }
+        if (-not [string]::IsNullOrWhiteSpace($startedAt)) {
+            $sessionIdentityParts += "started:$startedAt"
+            $hasStableIdentity = $true
+        }
+        if (-not [string]::IsNullOrWhiteSpace($payloadTranscriptPath)) {
+            $sessionIdentityParts += "transcript:$payloadTranscriptPath"
+            $hasStableIdentity = $true
+        }
+        if ($null -ne $hwnd -and $hwnd -ne 0) {
+            $sessionIdentityParts += "hwnd:$hwnd"
+            $hasStableIdentity = $true
+        }
+        if ($null -ne $windowPid -and $windowPid -ne 0) {
+            $sessionIdentityParts += "windowPid:$windowPid"
+            $hasStableIdentity = $true
+        }
+        if (-not $hasStableIdentity -and -not [string]::IsNullOrWhiteSpace($windowTitle)) {
+            $sessionIdentityParts += "title:$windowTitle"
+        }
+        $sessionSeed = Get-AgentNotifyHash ($sessionIdentityParts -join '|')
+        $sessionId = "$tool-$($sessionSeed.Substring(0, 16))"
     }
 
     $payloadStableId = Get-AgentNotifyFirstScalar -Payload $Payload -Paths @(
@@ -792,6 +1090,7 @@ function New-AgentNotifyEvent {
             startedAt = $startedAt
         }
         window = [ordered]@{
+            pid = $windowPid
             title = (Limit-AgentNotifyText -Text $windowTitle -MaxLength 160)
             hwnd = $hwnd
             terminal = (Limit-AgentNotifyText -Text $terminal -MaxLength 80)
