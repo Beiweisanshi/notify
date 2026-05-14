@@ -1,74 +1,40 @@
 use crate::event::{AgentEvent, EventType};
-use crate::redact::summary_hash;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 pub struct DedupeCache {
     window: Duration,
-    seen: HashMap<String, Instant>,
-    last_event_type: HashMap<String, EventType>,
+    last_state: HashMap<String, StateEntry>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StateEntry {
+    event_type: EventType,
+    at: Instant,
 }
 
 impl DedupeCache {
     pub fn new(window: Duration) -> Self {
         Self {
             window,
-            seen: HashMap::new(),
-            last_event_type: HashMap::new(),
+            last_state: HashMap::new(),
         }
     }
 
     pub fn should_emit(&mut self, event: &AgentEvent, now: Instant) -> bool {
-        self.expire(now);
-        let state_changed = self
-            .last_event_type
-            .insert(event.session_id.clone(), event.event_type)
-            .is_some_and(|previous| previous != event.event_type);
-        if state_changed {
-            self.remember(event, now);
-            return true;
-        }
-
-        let duplicate = self.keys(event).into_iter().any(|key| {
-            self.seen
-                .get(&key)
-                .is_some_and(|first_seen| now.duration_since(*first_seen) <= self.window)
-        });
-        self.remember(event, now);
-        !duplicate
-    }
-
-    fn remember(&mut self, event: &AgentEvent, now: Instant) {
-        for key in self.keys(event) {
-            self.seen.insert(key, now);
-        }
-    }
-
-    fn keys(&self, event: &AgentEvent) -> [String; 2] {
-        let event_key = format!(
-            "{}:{}:{}",
-            event.session_id,
-            event.event_type.as_str(),
-            event.event_id
+        let previous = self.last_state.insert(
+            event.session_id.clone(),
+            StateEntry {
+                event_type: event.event_type,
+                at: now,
+            },
         );
-        let summary = summary_hash(&[
-            &event.message.title,
-            &event.message.body,
-            event.message.detail.as_deref().unwrap_or_default(),
-        ]);
-        let summary_key = format!(
-            "{}:{}:{}",
-            event.session_id,
-            event.event_type.as_str(),
-            summary
-        );
-        [event_key, summary_key]
-    }
-
-    fn expire(&mut self, now: Instant) {
-        self.seen
-            .retain(|_, first_seen| now.duration_since(*first_seen) <= self.window);
+        match previous {
+            None => true,
+            Some(previous) if previous.event_type != event.event_type => true,
+            Some(previous) => now.duration_since(previous.at) > self.window,
+        }
     }
 }
 
@@ -96,6 +62,12 @@ mod tests {
         }
     }
 
+    fn event_with_summary(event_type: EventType, event_id: &str, body: &str) -> AgentEvent {
+        let mut e = event(event_type, event_id);
+        e.message.body = body.to_string();
+        e
+    }
+
     #[test]
     fn suppresses_duplicate_events_within_window() {
         let mut cache = DedupeCache::new(Duration::from_secs(30));
@@ -115,6 +87,33 @@ mod tests {
         assert!(cache.should_emit(
             &event(EventType::TaskCompleted, "e1"),
             now + Duration::from_secs(1)
+        ));
+    }
+
+    #[test]
+    fn suppresses_same_state_even_when_event_id_and_summary_differ() {
+        let mut cache = DedupeCache::new(Duration::from_secs(30));
+        let now = Instant::now();
+
+        assert!(cache.should_emit(
+            &event_with_summary(EventType::TaskCompleted, "e1", "first body"),
+            now
+        ));
+        assert!(!cache.should_emit(
+            &event_with_summary(EventType::TaskCompleted, "e2", "different body"),
+            now + Duration::from_secs(5)
+        ));
+    }
+
+    #[test]
+    fn lets_same_state_through_after_window_expires() {
+        let mut cache = DedupeCache::new(Duration::from_secs(30));
+        let now = Instant::now();
+
+        assert!(cache.should_emit(&event(EventType::TaskCompleted, "e1"), now));
+        assert!(cache.should_emit(
+            &event(EventType::TaskCompleted, "e2"),
+            now + Duration::from_secs(31)
         ));
     }
 }
