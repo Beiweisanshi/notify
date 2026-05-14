@@ -482,9 +482,6 @@ fn write_text_atomic(path: &Path, text: &str) -> Result<(), HookManagerError> {
     }
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, text)?;
-    if path.exists() {
-        fs::remove_file(path)?;
-    }
     fs::rename(tmp, path)?;
     Ok(())
 }
