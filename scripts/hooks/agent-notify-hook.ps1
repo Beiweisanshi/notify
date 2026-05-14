@@ -603,6 +603,7 @@ function Get-AgentNotifyToolLabel {
 function Read-AgentNotifyStdin {
     try {
         if ([Console]::IsInputRedirected) {
+            [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false
             return [Console]::In.ReadToEnd().TrimStart([char]0xFEFF)
         }
     }
