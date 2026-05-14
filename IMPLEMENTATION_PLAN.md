@@ -2,7 +2,7 @@
 
 ## 目标
 
-实现一个 Windows 本地通知工具，用户可以从任意终端直接运行 `claude` 或 `codex`。当任务完成、失败、等待用户确认或等待继续输入时，系统弹出类似微信消息的气泡通知；目标体验是点击通知后尽量唤起原终端窗口。当前代码尚未接入 Toast 点击回调。
+实现一个 Windows 本地通知工具，用户可以从任意终端直接运行 `claude` 或 `codex`。当任务完成、失败、等待用户确认或等待继续输入时，系统弹出类似微信消息的气泡通知；目标体验是点击通知后尽量唤起原终端窗口。当前代码已接入 Toast 主体点击的短期 activation nonce 唤窗路径。
 
 第一版必须自动检查和安装 Claude/Codex hooks。用户不需要手动编辑 Claude 或 Codex 配置。
 
@@ -12,7 +12,7 @@
 事件来源：Claude 官方 hook + Codex 官方 lifecycle hooks
 触发方式：hook -> agent-notify-hook.ps1 -> agent-notify emit --stdin -> 本地后台
 通知实现：后台 MVP 先用中文 Windows Runtime Toast，并通过当前用户 Start Menu 快捷方式获取 AppID；完整 Tauri 托盘应用后续接入
-点击唤窗：当前只提供 Bearer 鉴权的 /focus/{sessionId}，且仅支持 HWND；Toast deep link 后续实现
+点击唤窗：提供 Bearer 鉴权的 /focus/{sessionId} 和 /activate/{activationId}；Toast deep link 只携带短期 activation nonce，不携带 Bearer token
 Codex 边界：只支持带官方 hooks 的最新版 Codex
 离线策略：后台离线、监听关闭、token 无效时直接丢弃事件；监听开关当前只在启动配置中读取
 ```
@@ -31,12 +31,12 @@ codex features list   hooks stable true
 
 - Rust workspace 包含 `agent-notify-core`、`agent-notify`、`agent-notify-tray` 和 `hook-manager`。
 - `agent-notify emit --stdin` 从 stdin 读取统一事件 JSON，去除 UTF-8 BOM，校验后 POST 到 `/events`；默认静默丢弃失败，`AGENT_NOTIFY_STRICT` 才返回非零。`AGENT_NOTIFY_ENDPOINT`、`AGENT_NOTIFY_TOKEN` 可覆盖默认 endpoint/token。
-- `agent-notify-tray` 当前是 Axum localhost 后台，不是完整 Tauri 托盘 UI。它支持 `serve`、`check-hooks`、`repair-hooks`，并提供 `POST /events`、`GET /sessions`、`POST /focus/{sessionId}`。
+- `agent-notify-tray` 当前是 Axum localhost 后台，不是完整 Tauri 托盘 UI。它支持 `serve`、`check-hooks`、`repair-hooks`，启动 `serve` 时会创建可退出后台的原生 Windows 托盘图标，并提供 `POST /events`、`GET /sessions`、`POST /focus/{sessionId}`。
 - 所有 localhost 路由都要求 Bearer token；token 默认在 `%LOCALAPPDATA%\AgentNotify\token`，也可通过 `AGENT_NOTIFY_TOKEN` 传给 CLI。`AGENT_NOTIFY_HOME` 可覆盖运行时根目录。
-- 后台维护内存 session 表和 30 秒去重窗口，按通知策略发中文 Windows Toast；`serve` 会创建/更新当前用户 `智能任务通知.lnk`，写入图标资源，并通过 `Get-StartApps` AppID 发送通知，当前 Toast 没有点击回调。
-- `/focus/{sessionId}` 当前只在事件携带 HWND 时尝试 `SetForegroundWindow`，未实现 PID、父进程、窗口标题 fallback，也未打开 session 详情页。
+- 后台维护内存 session 表和 30 秒去重窗口，按通知策略发中文 Windows Toast；`serve` 会创建/更新当前用户 `智能任务通知.lnk`，注册 `agent-notify://` 协议，写入图标资源，创建原生托盘退出菜单，并通过 `Get-StartApps` AppID 发送通知，Toast 主体点击会通过短期 activation nonce 回到后台。
+- `/focus/{sessionId}` 和 `/activate/{activationId}` 当前按 HWND、PID、父 PID、窗口标题顺序尝试 `SetForegroundWindow`，未打开 session 详情页。
 - Hook Manager 会复制 `agent-notify-hook.ps1` 到运行时目录、生成 manifest、备份并合并 Claude/Codex 用户级 hook 配置、启用 Codex `hooks` feature。
-- 当前还未实现完整 ACL 加固、备份保留策略、失败后自动回滚恢复、Tauri 托盘 UI、运行时监听开关、deep link activation nonce、Toast 按钮和 `agentrun`。
+- 当前还未实现完整 ACL 加固、备份保留策略、失败后自动回滚恢复、Tauri 托盘管理 UI、运行时监听开关、Toast 按钮、进程树精确校验和 `agentrun`。
 
 ## 交付物
 
@@ -60,7 +60,7 @@ src/agent-notify-tray/
 - `assets/agent-notify-icon.*`：Windows Toast `appLogoOverride` 和开始菜单快捷方式使用的应用图标资源。
 - `src/hook-manager/`：自动检查、安装、修复、备份 hooks。
 - `src/agent-notify/`：CLI，提供 `agent-notify emit --stdin`。
-- `src/agent-notify-tray/`：当前实现为本地 HTTP 后台、事件入口、通知和 HWND-only focus；完整 Tauri 托盘应用待接入。
+- `src/agent-notify-tray/`：当前实现为本地 HTTP 后台、事件入口、通知、原生托盘退出菜单、Toast 点击 activation 和 best-effort focus；完整 Tauri 托盘应用待接入。
 - 当前测试以内联 Rust 单元测试为主，尚未建立独立 `tests/` 目录。
 
 ## 运行时目录
@@ -293,12 +293,13 @@ hook 不得把统一事件 JSON 写到自身 stdout/stderr。Claude/Codex 会解
 - Windows Toast。
 - Bearer 鉴权的 `/focus/{sessionId}`。
 
-完整 Tauri 托盘 UI、hook 健康状态展示、运行时监听开关、通知点击回调和 session 详情页尚未实现。第一版使用 localhost HTTP，后续可以替换为 named pipe：
+完整 Tauri 托盘 UI、hook 健康状态展示、运行时监听开关、Toast 按钮动作和 session 详情页尚未实现。第一版使用 localhost HTTP，后续可以替换为 named pipe：
 
 ```text
 POST http://127.0.0.1:17891/events
 GET  http://127.0.0.1:17891/sessions
 POST http://127.0.0.1:17891/focus/{sessionId}
+POST http://127.0.0.1:17891/activate/{activationId}
 Authorization: Bearer <AGENT_NOTIFY_TOKEN>
 ```
 
@@ -329,7 +330,7 @@ heartbeat
 标题：Codex 需要确认
 正文：project · 当前会话 · 点击返回终端
 详情：请求执行 shell 命令，参数已隐藏
-交互：当前仅展示 Toast 文本；点击主体、忽略/静音和托盘 UI 处理待实现
+交互：点击主体通过短期 activation nonce 唤窗；忽略/静音和托盘 UI 处理待实现
 ```
 
 通知不能自动批准 Claude/Codex 权限请求。
@@ -350,10 +351,10 @@ Windows Terminal 多 tab 场景只承诺 best-effort：可以唤起 Terminal 窗
 
 当前实现边界：
 
-- Toast 点击没有接入 deep link。
+- Toast 点击已接入 `agent-notify://focus?activationId=...` deep link。
 - `/focus/{sessionId}` 必须通过 HTTP Bearer token 调用。
-- 只有事件携带 HWND 时才尝试聚焦窗口。
-- PID、父 PID、进程树、窗口标题和 Tauri session 详情页是后续工作。
+- 当前按 HWND、PID、父 PID、窗口标题顺序 best-effort 聚焦窗口。
+- 进程树精确校验和 Tauri session 详情页是后续工作。
 
 目标实现规则：
 
@@ -384,7 +385,7 @@ Windows Terminal 多 tab 场景只承诺 best-effort：可以唤起 Terminal 窗
 - 缺失 Claude hook 时自动安装。
 - 缺失 Codex hook 时自动安装。
 - 删除 hook 后“修复 hooks”可恢复。
-- Toast 中文文本和图标能通过 `智能任务通知` Start Menu AppID 显示；Toast 主体点击 deep link 聚焦窗口或打开 session 详情当前未实现。
+- Toast 中文文本和图标能通过 `智能任务通知` Start Menu AppID 显示；Toast 主体点击 deep link 会尝试聚焦窗口，session 详情页当前未实现。
 - 唤窗矩阵：PowerShell 独立窗口、CMD、Windows Terminal 单窗口、多 tab、定位失败。当前仅覆盖 HWND 路径。
 
 手动验收：
@@ -392,18 +393,18 @@ Windows Terminal 多 tab 场景只承诺 best-effort：可以唤起 Terminal 窗
 - 从任意 PowerShell 启动 `claude`，等待确认时弹通知。
 - 从任意 PowerShell 启动 `codex`，PermissionRequest 时弹通知。
 - Codex Stop 时弹完成或等待输入通知。
-- 点击通知能回到对应终端窗口或打开 session 详情。当前未实现，属于后续验收。
+- 点击通知能 best-effort 回到对应终端窗口；打开 session 详情仍属后续验收。
 
 ## 里程碑
 
-1. 已验证 Toast 文本通知路径；Toast 点击回调和完整窗口唤起仍待实现。
+1. 已验证 Toast 文本通知路径；Toast 主体点击回调和 best-effort 窗口唤起已实现，真实 Claude/Codex 端到端点击验收待补。
 2. 已实现本地事件入口；Tauri 托盘壳待实现。
 3. 已实现 `agent-notify emit --stdin`。
 4. 已实现 Hook Manager 自动检查和安装的核心路径。
 5. 已实现 Claude hook adapter 的通用映射。
 6. 已实现 Codex hook adapter 的通用映射。
 7. 已实现通知策略、去重和安全脱敏的核心逻辑。
-8. 端到端真实 Claude/Codex 触发验收、Toast 点击回调和 UI 验收待完成。
+8. 端到端真实 Claude/Codex 触发验收和 UI 验收待完成。
 
 ## MVP 验收标准
 
@@ -423,5 +424,5 @@ Windows Terminal 多 tab 场景只承诺 best-effort：可以唤起 Terminal 窗
 
 - Tauri 托盘 UI 显示 Claude/Codex hook 健康状态。
 - 运行时监听开关和“修复 hooks”按钮。
-- Toast 主体点击 deep link 和 activation nonce。
-- PID/父进程/窗口标题 fallback，无法定位时打开 session 详情。
+- Toast 按钮动作。
+- 进程树精确校验，无法定位时打开 session 详情。

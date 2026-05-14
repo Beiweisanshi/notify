@@ -2,8 +2,8 @@ mod floating_status;
 mod focus;
 
 use agent_notify_core::{
-    AgentEvent, DedupeCache, RuntimeConfig, SessionInfo, WindowInfo, load_or_create_config,
-    notification_view, read_token,
+    AgentEvent, DedupeCache, EventType, RuntimeConfig, SessionInfo, SessionStatus, WindowInfo,
+    load_or_create_config, notification_view, read_token,
 };
 use anyhow::{Context, Result};
 use axum::body::Bytes;
@@ -64,10 +64,8 @@ static WINDOWS_ICON_ASSETS: std::sync::OnceLock<Option<WindowsIconAssets>> =
 #[cfg(windows)]
 static WINDOWS_TRAY_SHUTDOWN: std::sync::OnceLock<Arc<Notify>> = std::sync::OnceLock::new();
 #[cfg(windows)]
-static WINDOWS_TRAY_BAR_STATE: std::sync::OnceLock<(
-    Arc<Mutex<FloatingBarState>>,
-    Arc<PathBuf>,
-)> = std::sync::OnceLock::new();
+static WINDOWS_TRAY_BAR_STATE: std::sync::OnceLock<(Arc<Mutex<FloatingBarState>>, Arc<PathBuf>)> =
+    std::sync::OnceLock::new();
 
 #[derive(Debug, Parser)]
 #[command(name = "agent-notify-tray")]
@@ -377,22 +375,27 @@ async fn post_event(
     }
 
     let now = Utc::now().to_rfc3339();
-    state.sessions.lock().await.insert(
-        event.session_id.clone(),
-        SessionInfo::from_event(&event, now.clone()),
-    );
+    let session = SessionInfo::from_event(&event, now.clone());
+    let suppress_completion_notification = {
+        let mut sessions = state.sessions.lock().await;
+        let suppress_completion_notification =
+            should_suppress_internal_completion(&session, sessions.values());
+        sessions.insert(event.session_id.clone(), session);
+        suppress_completion_notification
+    };
     let should_emit = state
         .dedupe
         .lock()
         .await
         .should_emit(&event, Instant::now());
-    let floating_notification = if should_emit {
+    let should_notify = should_emit && !suppress_completion_notification;
+    let floating_notification = if should_notify {
         record_floating_notification(&state, &event, &now).await
     } else {
         None
     };
     let notified =
-        should_emit && notify_event(&state, &event, floating_notification.as_ref()).await;
+        should_notify && notify_event(&state, &event, floating_notification.as_ref()).await;
 
     Ok(Json(EventResponse {
         accepted: true,
@@ -737,6 +740,79 @@ async fn record_floating_notification(
     }
 }
 
+fn should_suppress_internal_completion<'a>(
+    completed: &SessionInfo,
+    existing_sessions: impl IntoIterator<Item = &'a SessionInfo>,
+) -> bool {
+    if completed.last_event_type != EventType::TaskCompleted {
+        return false;
+    }
+
+    existing_sessions.into_iter().any(|session| {
+        session.session_id != completed.session_id
+            && is_active_session(session)
+            && has_parent_child_process_evidence(completed, session)
+            && same_terminal_surface(completed, session)
+    })
+}
+
+fn is_active_session(session: &SessionInfo) -> bool {
+    matches!(
+        session.status,
+        SessionStatus::Running | SessionStatus::WaitingUser
+    )
+}
+
+fn has_parent_child_process_evidence(completed: &SessionInfo, active: &SessionInfo) -> bool {
+    let completed_pid = completed.process.as_ref().and_then(|process| process.pid);
+    let completed_parent_pid = completed
+        .process
+        .as_ref()
+        .and_then(|process| process.parent_pid);
+    let active_pid = active.process.as_ref().and_then(|process| process.pid);
+    let active_parent_pid = active
+        .process
+        .as_ref()
+        .and_then(|process| process.parent_pid);
+
+    completed_parent_pid
+        .zip(active_pid)
+        .is_some_and(|(parent, pid)| parent != 0 && parent == pid)
+        || completed_pid
+            .zip(active_parent_pid)
+            .is_some_and(|(pid, parent)| pid != 0 && pid == parent)
+}
+
+fn same_terminal_surface(left: &SessionInfo, right: &SessionInfo) -> bool {
+    if let Some(left_hwnd) = left
+        .window
+        .as_ref()
+        .and_then(|window| window.hwnd)
+        .filter(|hwnd| *hwnd != 0)
+    {
+        return right
+            .window
+            .as_ref()
+            .and_then(|window| window.hwnd)
+            .is_some_and(|right_hwnd| right_hwnd == left_hwnd);
+    }
+
+    if let Some(left_pid) = left
+        .window
+        .as_ref()
+        .and_then(|window| window.pid)
+        .filter(|pid| *pid != 0)
+    {
+        return right
+            .window
+            .as_ref()
+            .and_then(|window| window.pid)
+            .is_some_and(|right_pid| right_pid == left_pid);
+    }
+
+    false
+}
+
 fn parse_focus_request(body: &Bytes) -> Result<Option<FocusRequest>, StatusCode> {
     if body.is_empty() {
         return Ok(None);
@@ -796,7 +872,10 @@ async fn notify_event(
     let Some(view) = notification_view(event) else {
         return false;
     };
-    if floating_notification.is_some() && floating_ui_active(state).await {
+    if floating_ui_handles_notification(event.event_type)
+        && floating_notification.is_some()
+        && floating_ui_active(state).await
+    {
         return true;
     }
     let activation = if cfg!(windows) {
@@ -809,6 +888,10 @@ async fn notify_event(
         remove_activation(state, &entry.id).await;
     }
     notified
+}
+
+fn floating_ui_handles_notification(event_type: EventType) -> bool {
+    event_type == EventType::TaskCompleted
 }
 
 async fn floating_ui_active(state: &AppState) -> bool {
@@ -1303,29 +1386,27 @@ unsafe extern "system" fn windows_tray_wnd_proc(
                 return 0;
             }
         }
-        WM_COMMAND => {
-            match wparam & 0xffff {
-                id if id == WINDOWS_TRAY_TOGGLE_BAR_ID => {
-                    toggle_floating_bar_visibility();
-                    return 0;
-                }
-                id if id == WINDOWS_TRAY_OPEN_LOGS_ID => {
-                    open_logs_folder();
-                    return 0;
-                }
-                id if id == WINDOWS_TRAY_EXIT_ID => {
-                    if let Some(shutdown) = WINDOWS_TRAY_SHUTDOWN.get() {
-                        shutdown.notify_waiters();
-                    }
-                    terminate_parent_desktop();
-                    unsafe {
-                        DestroyWindow(hwnd);
-                    }
-                    return 0;
-                }
-                _ => {}
+        WM_COMMAND => match wparam & 0xffff {
+            id if id == WINDOWS_TRAY_TOGGLE_BAR_ID => {
+                toggle_floating_bar_visibility();
+                return 0;
             }
-        }
+            id if id == WINDOWS_TRAY_OPEN_LOGS_ID => {
+                open_logs_folder();
+                return 0;
+            }
+            id if id == WINDOWS_TRAY_EXIT_ID => {
+                if let Some(shutdown) = WINDOWS_TRAY_SHUTDOWN.get() {
+                    shutdown.notify_waiters();
+                }
+                terminate_parent_desktop();
+                unsafe {
+                    DestroyWindow(hwnd);
+                }
+                return 0;
+            }
+            _ => {}
+        },
         WM_DESTROY => {
             unsafe {
                 PostQuitMessage(0);
@@ -1355,12 +1436,26 @@ fn show_windows_tray_menu(hwnd: windows_sys::Win32::Foundation::HWND) {
         .get()
         .map(|(state, _)| state.blocking_lock().hidden)
         .unwrap_or(false);
-    let toggle_label = wide_null(if hidden { "显示浮窗" } else { "隐藏浮窗" });
+    let toggle_label = wide_null(if hidden {
+        "显示浮窗"
+    } else {
+        "隐藏浮窗"
+    });
     let logs_label = wide_null("打开日志目录");
     let exit_label = wide_null("退出");
     unsafe {
-        AppendMenuW(menu, MF_STRING, WINDOWS_TRAY_TOGGLE_BAR_ID, toggle_label.as_ptr());
-        AppendMenuW(menu, MF_STRING, WINDOWS_TRAY_OPEN_LOGS_ID, logs_label.as_ptr());
+        AppendMenuW(
+            menu,
+            MF_STRING,
+            WINDOWS_TRAY_TOGGLE_BAR_ID,
+            toggle_label.as_ptr(),
+        );
+        AppendMenuW(
+            menu,
+            MF_STRING,
+            WINDOWS_TRAY_OPEN_LOGS_ID,
+            logs_label.as_ptr(),
+        );
         AppendMenuW(menu, MF_SEPARATOR, 0, ptr::null());
         AppendMenuW(menu, MF_STRING, WINDOWS_TRAY_EXIT_ID, exit_label.as_ptr());
     }
@@ -1422,8 +1517,8 @@ fn open_logs_folder() {
 fn terminate_parent_desktop() {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{
-        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, QueryFullProcessImageNameW,
-        TerminateProcess,
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+        QueryFullProcessImageNameW, TerminateProcess,
     };
 
     let Some(parent_pid) = std::env::var("AGENT_NOTIFY_DESKTOP_PID")
@@ -1873,6 +1968,61 @@ mod tests {
         assert_eq!(shared.process, None);
         assert_eq!(shared_window.hwnd, Some(100));
         assert_eq!(shared_window.pid, Some(200));
+    }
+
+    #[test]
+    fn floating_ui_only_claims_completed_notifications() {
+        assert!(floating_ui_handles_notification(EventType::TaskCompleted));
+        assert!(!floating_ui_handles_notification(
+            EventType::UserConfirmationRequired
+        ));
+        assert!(!floating_ui_handles_notification(
+            EventType::UserInputRequired
+        ));
+        assert!(!floating_ui_handles_notification(EventType::TaskFailed));
+        assert!(!floating_ui_handles_notification(EventType::ToolBlocked));
+    }
+
+    #[test]
+    fn suppresses_internal_completion_with_parent_process_evidence() {
+        let mut active = test_windowed_session("root", Some(100), Some(200), Some("notify"));
+        active.status = SessionStatus::Running;
+        active.last_event_type = EventType::Heartbeat;
+        let mut completed = test_windowed_session("child", Some(100), Some(200), Some("notify"));
+        completed.process.as_mut().unwrap().pid = Some(84);
+        completed.process.as_mut().unwrap().parent_pid = active.process.as_ref().unwrap().pid;
+
+        assert!(should_suppress_internal_completion(&completed, [&active]));
+    }
+
+    #[test]
+    fn keeps_completion_notification_for_shared_terminal_without_process_evidence() {
+        let mut active = test_windowed_session("root", Some(100), Some(200), Some("notify"));
+        active.status = SessionStatus::Running;
+        active.last_event_type = EventType::Heartbeat;
+        let completed = test_windowed_session("child", Some(100), Some(200), Some("notify"));
+
+        assert!(!should_suppress_internal_completion(&completed, [&active]));
+    }
+
+    #[test]
+    fn keeps_completion_notification_for_same_session_transition() {
+        let mut active = test_windowed_session("s1", Some(100), Some(200), Some("notify"));
+        active.status = SessionStatus::Running;
+        active.last_event_type = EventType::Heartbeat;
+        let completed = test_windowed_session("s1", Some(100), Some(200), Some("notify"));
+
+        assert!(!should_suppress_internal_completion(&completed, [&active]));
+    }
+
+    #[test]
+    fn keeps_completion_notification_when_active_session_is_different_terminal() {
+        let mut active = test_windowed_session("root", Some(101), Some(201), Some("notify"));
+        active.status = SessionStatus::Running;
+        active.last_event_type = EventType::Heartbeat;
+        let completed = test_windowed_session("child", Some(100), Some(200), Some("notify"));
+
+        assert!(!should_suppress_internal_completion(&completed, [&active]));
     }
 
     fn test_state() -> AppState {

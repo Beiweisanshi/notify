@@ -303,14 +303,8 @@ where
             candidate.hwnd as isize,
             candidate.identity.pid,
             sanitize_log_text(&candidate.identity.title),
-            candidate
-                .host_image
-                .as_deref()
-                .unwrap_or("<none>"),
-            candidate
-                .class_name
-                .as_deref()
-                .unwrap_or("<none>"),
+            candidate.host_image.as_deref().unwrap_or("<none>"),
+            candidate.class_name.as_deref().unwrap_or("<none>"),
             session
                 .window
                 .as_ref()
@@ -687,9 +681,7 @@ where
             return 1;
         }
         let class_name = unsafe { read_window_class_name(hwnd) };
-        let is_terminal = class_name
-            .as_deref()
-            .is_some_and(is_known_terminal_class);
+        let is_terminal = class_name.as_deref().is_some_and(is_known_terminal_class);
         let entry = Match {
             hwnd,
             class_name,
@@ -821,7 +813,12 @@ mod tests {
     #[test]
     fn l1_pid_match_wins_over_lower_tiers() {
         let session = session(Some(42), Some(10), Some(11), "repo - codex");
-        let probe = probe(42, "anything", Some("chrome.exe"), Some("Chrome_WidgetWin_1"));
+        let probe = probe(
+            42,
+            "anything",
+            Some("chrome.exe"),
+            Some("Chrome_WidgetWin_1"),
+        );
         assert_eq!(
             identity_matches_session(&probe, &session),
             IdentityMatch::L1Pid
@@ -831,7 +828,12 @@ mod tests {
     #[test]
     fn l2_host_image_allows_mismatched_pid() {
         let session = session(Some(42), Some(10), Some(11), "old title");
-        let probe = probe(9999, "new title", Some("conhost.exe"), Some("ConsoleWindowClass"));
+        let probe = probe(
+            9999,
+            "new title",
+            Some("conhost.exe"),
+            Some("ConsoleWindowClass"),
+        );
         assert_eq!(
             identity_matches_session(&probe, &session),
             IdentityMatch::L2HostImage
@@ -841,7 +843,12 @@ mod tests {
     #[test]
     fn l3_host_class_allows_when_image_unobtainable() {
         let session = session(Some(42), Some(10), Some(11), "old title");
-        let probe = probe(9999, "new title", None, Some("CASCADIA_HOSTING_WINDOW_CLASS"));
+        let probe = probe(
+            9999,
+            "new title",
+            None,
+            Some("CASCADIA_HOSTING_WINDOW_CLASS"),
+        );
         assert_eq!(
             identity_matches_session(&probe, &session),
             IdentityMatch::L3HostClass
@@ -903,7 +910,11 @@ mod tests {
             IdentityMatch::L4Title,
             IdentityMatch::L5Empty,
         ] {
-            assert!(verdict.allows_focus(), "tier {:?} must allow focus", verdict);
+            assert!(
+                verdict.allows_focus(),
+                "tier {:?} must allow focus",
+                verdict
+            );
         }
         assert!(!IdentityMatch::Reject.allows_focus());
     }

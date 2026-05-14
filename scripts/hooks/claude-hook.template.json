@@ -16,7 +16,7 @@
             "managedBy": "agent-notify",
             "type": "command",
             "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool claude --hook-event PermissionRequest",
-            "timeout": 2
+            "timeout": 5
           }
         ]
       }
@@ -31,7 +31,7 @@
             "managedBy": "agent-notify",
             "type": "command",
             "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool claude --hook-event Stop",
-            "timeout": 2
+            "timeout": 5
           }
         ]
       }
@@ -46,7 +46,7 @@
             "managedBy": "agent-notify",
             "type": "command",
             "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool claude --hook-event StopFailure",
-            "timeout": 2
+            "timeout": 5
           }
         ]
       }
@@ -61,7 +61,7 @@
             "managedBy": "agent-notify",
             "type": "command",
             "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool claude --hook-event Notification",
-            "timeout": 2
+            "timeout": 5
           }
         ]
       }
@@ -77,7 +77,7 @@
             "managedBy": "agent-notify",
             "type": "command",
             "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool claude --hook-event PostToolUseFailure",
-            "timeout": 2
+            "timeout": 5
           }
         ]
       }
@@ -92,7 +92,7 @@
             "managedBy": "agent-notify",
             "type": "command",
             "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"{{agentNotifyHookPath}}\" --tool claude --hook-event SessionEnd",
-            "timeout": 2
+            "timeout": 5
           }
         ]
       }

@@ -4,6 +4,7 @@ members = [
   "src/agent-notify",
   "src/agent-notify-tray",
   "src/hook-manager",
+  "src-tauri",
 ]
 resolver = "3"
 
@@ -31,4 +32,4 @@ thiserror = "2"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "time"] }
 toml_edit = "0.22"
 uuid = { version = "1", features = ["serde", "v4"] }
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

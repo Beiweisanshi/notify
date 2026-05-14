@@ -12,6 +12,7 @@ use toml_edit::{DocumentMut, Item, Table, value};
 
 pub const MANAGED_BY: &str = "agent-notify";
 pub const HOOK_VERSION: &str = "0.1.0";
+const EMBEDDED_HOOK_SCRIPT: &[u8] = include_bytes!("../../../scripts/hooks/agent-notify-hook.ps1");
 
 const CLAUDE_EVENTS: &[&str] = &[
     "PermissionRequest",
@@ -22,6 +23,7 @@ const CLAUDE_EVENTS: &[&str] = &[
     "SessionEnd",
 ];
 const CODEX_EVENTS: &[&str] = &["SessionStart", "PermissionRequest", "Stop", "PostToolUse"];
+const HOOK_COMMAND_TIMEOUT_SECONDS: u64 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -51,7 +53,9 @@ pub enum HookStatus {
 pub struct HookInstallPaths {
     pub app_dir: PathBuf,
     pub hook_install_dir: PathBuf,
+    pub emitter_install_dir: PathBuf,
     pub installed_hook: PathBuf,
+    pub installed_emitter: PathBuf,
     pub manifest: PathBuf,
     pub backups_dir: PathBuf,
     pub claude_settings: PathBuf,
@@ -64,13 +68,16 @@ impl HookInstallPaths {
     pub fn from_env() -> Self {
         let app_dir = agent_notify_dir();
         let hook_install_dir = app_dir.join("hooks");
+        let emitter_install_dir = app_dir.join("bin");
         let user_profile = env::var_os("USERPROFILE")
             .map(PathBuf::from)
             .unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
         Self {
             installed_hook: hook_install_dir.join("agent-notify-hook.ps1"),
+            installed_emitter: emitter_install_dir.join(agent_notify_exe_name()),
             manifest: hook_install_dir.join("manifest.json"),
             hook_install_dir,
+            emitter_install_dir,
             backups_dir: app_dir.join("backups"),
             claude_settings: user_profile.join(".claude").join("settings.json"),
             codex_hooks: user_profile.join(".codex").join("hooks.json"),
@@ -96,6 +103,8 @@ pub struct HookInstallReport {
     pub codex: HookStatus,
     pub hook_script: HookStatus,
     pub installed_hook: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installed_emitter: Option<String>,
     pub manifest: String,
 }
 
@@ -105,8 +114,10 @@ pub fn install_or_repair(paths: &HookInstallPaths) -> Result<HookInstallReport, 
     let codex_hooks_feature = check_codex_hooks_feature();
 
     fs::create_dir_all(&paths.hook_install_dir)?;
+    fs::create_dir_all(&paths.emitter_install_dir)?;
     fs::create_dir_all(&paths.backups_dir)?;
-    install_hook_script(paths)?;
+    let emitter_hash = install_emitter(paths)?;
+    install_hook_script(paths, emitter_hash.as_deref())?;
 
     let command_template = hook_command_template();
     let installed_hook = paths.installed_hook.display().to_string();
@@ -134,6 +145,7 @@ pub fn install_or_repair(paths: &HookInstallPaths) -> Result<HookInstallReport, 
         codex,
         hook_script: HookStatus::HookOk,
         installed_hook,
+        installed_emitter: emitter_hash.map(|_| paths.installed_emitter.display().to_string()),
         manifest: paths.manifest.display().to_string(),
     })
 }
@@ -222,9 +234,11 @@ fn run_resolved_windows_command(_name: &str, _args: &[&str]) -> Option<io::Resul
     None
 }
 
-fn install_hook_script(paths: &HookInstallPaths) -> Result<(), HookManagerError> {
-    let source_bytes = fs::read(&paths.source_hook)
-        .map_err(|error| HookManagerError::SourceHookRead(paths.source_hook.clone(), error))?;
+fn install_hook_script(
+    paths: &HookInstallPaths,
+    emitter_hash: Option<&str>,
+) -> Result<(), HookManagerError> {
+    let source_bytes = source_hook_bytes(paths)?;
     let installed_bytes = with_utf8_bom(source_bytes);
     let script_hash = sha256_hex(&installed_bytes);
     let current_hash = fs::read(&paths.installed_hook)
@@ -239,6 +253,8 @@ fn install_hook_script(paths: &HookInstallPaths) -> Result<(), HookManagerError>
         "hookVersion": HOOK_VERSION,
         "installedAt": Utc::now().to_rfc3339(),
         "scriptSha256": script_hash,
+        "emitterPath": paths.installed_emitter.display().to_string(),
+        "emitterSha256": emitter_hash,
         "supportedEvents": {
             "claude": CLAUDE_EVENTS,
             "codex": CODEX_EVENTS
@@ -246,6 +262,65 @@ fn install_hook_script(paths: &HookInstallPaths) -> Result<(), HookManagerError>
     });
     write_json_atomic(&paths.manifest, &manifest)?;
     Ok(())
+}
+
+fn source_hook_bytes(paths: &HookInstallPaths) -> Result<Vec<u8>, HookManagerError> {
+    match fs::read(&paths.source_hook) {
+        Ok(bytes) => Ok(bytes),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(EMBEDDED_HOOK_SCRIPT.to_vec()),
+        Err(error) => Err(HookManagerError::SourceHookRead(
+            paths.source_hook.clone(),
+            error,
+        )),
+    }
+}
+
+fn install_emitter(paths: &HookInstallPaths) -> Result<Option<String>, HookManagerError> {
+    let Some(source) = resolve_source_emitter() else {
+        return Ok(None);
+    };
+    install_emitter_from_path(&source, &paths.installed_emitter)
+        .map(Some)
+        .map_err(HookManagerError::Io)
+}
+
+fn resolve_source_emitter() -> Option<PathBuf> {
+    if let Some(path) = env::var_os("AGENT_NOTIFY_EMITTER")
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+    {
+        return Some(path);
+    }
+
+    let sibling = env::current_exe()
+        .ok()?
+        .with_file_name(agent_notify_exe_name());
+    sibling.is_file().then_some(sibling)
+}
+
+fn install_emitter_from_path(source: &Path, destination: &Path) -> io::Result<String> {
+    let bytes = fs::read(source)?;
+    let hash = sha256_hex(&bytes);
+    if source.canonicalize().ok() == destination.canonicalize().ok() {
+        return Ok(hash);
+    }
+
+    let current_hash = fs::read(destination).ok().map(|bytes| sha256_hex(&bytes));
+    if current_hash.as_deref() != Some(&hash) {
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(destination, &bytes)?;
+    }
+    Ok(hash)
+}
+
+fn agent_notify_exe_name() -> &'static str {
+    if cfg!(windows) {
+        "agent-notify.exe"
+    } else {
+        "agent-notify"
+    }
 }
 
 fn with_utf8_bom(mut bytes: Vec<u8>) -> Vec<u8> {
@@ -320,13 +395,7 @@ fn remove_managed_hooks(groups: &mut Vec<Value>) -> Result<(), HookManagerError>
             .get_mut("hooks")
             .and_then(Value::as_array_mut)
             .ok_or(HookManagerError::ConfigParse)?;
-        hooks.retain(|hook| {
-            hook.get("managedBy").and_then(Value::as_str) != Some(MANAGED_BY)
-                && !hook
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .is_some_and(|id| id.starts_with("agent-notify-"))
-        });
+        hooks.retain(|hook| !is_agent_notify_hook(hook));
     }
     groups.retain(|group| {
         group
@@ -363,14 +432,30 @@ fn reject_unmanaged_same_command(
                 };
                 let same_command = managed_commands.contains(&command)
                     || command.contains("agent-notify-hook.ps1");
-                let marked = hook.get("managedBy").and_then(Value::as_str) == Some(MANAGED_BY);
-                if same_command && !marked {
+                if same_command && !is_agent_notify_hook(hook) {
                     return Err(HookManagerError::MergeConflict);
                 }
             }
         }
     }
     Ok(())
+}
+
+fn is_agent_notify_hook(hook: &Value) -> bool {
+    hook.get("managedBy").and_then(Value::as_str) == Some(MANAGED_BY)
+        || hook
+            .get("id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.starts_with("agent-notify-"))
+        || is_legacy_agent_notify_hook(hook)
+}
+
+fn is_legacy_agent_notify_hook(hook: &Value) -> bool {
+    hook.get("statusMessage").and_then(Value::as_str) == Some("Agent Notify")
+        && hook
+            .get("command")
+            .and_then(Value::as_str)
+            .is_some_and(|command| command.contains("agent-notify-hook.ps1"))
 }
 
 fn enable_codex_hooks_feature(path: &Path, backups_dir: &Path) -> Result<(), HookManagerError> {
@@ -432,7 +517,7 @@ fn managed_group(tool: &str, event: &str, matcher: Option<&str>, command: &str) 
         "hooks": [{
             "type": "command",
             "command": command,
-            "timeout": 2,
+            "timeout": HOOK_COMMAND_TIMEOUT_SECONDS,
             "statusMessage": "Agent Notify",
             "managedBy": MANAGED_BY,
             "id": format!("agent-notify-{tool}-{event}")
@@ -571,6 +656,32 @@ mod tests {
     }
 
     #[test]
+    fn adopts_legacy_agent_notify_hook_without_managed_marker() {
+        let existing = json!({
+            "hooks": {
+                "Stop": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": "powershell -File agent-notify-hook.ps1 --tool claude --hook-event Stop",
+                        "statusMessage": "Agent Notify"
+                    }]
+                }]
+            }
+        });
+        let merged = merge_managed_hooks(
+            existing,
+            claude_template(
+                "powershell -File agent-notify-hook.ps1 --tool {tool} --hook-event {event}",
+            ),
+        )
+        .unwrap();
+        let hooks = merged["hooks"]["Stop"].as_array().unwrap();
+
+        assert_eq!(hooks.len(), 1);
+        assert_eq!(hooks[0]["hooks"][0]["managedBy"], MANAGED_BY);
+    }
+
+    #[test]
     fn enables_codex_hooks_feature_without_removing_existing_toml() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
@@ -595,6 +706,61 @@ mod tests {
 
         assert!(text.contains("hooks = true"));
         assert!(!text.contains("codex_hooks"));
+    }
+
+    #[test]
+    fn installs_emitter_binary_when_source_available() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join(agent_notify_exe_name());
+        let destination = dir
+            .path()
+            .join("runtime")
+            .join("bin")
+            .join(agent_notify_exe_name());
+        fs::write(&source, b"agent-notify test emitter").unwrap();
+
+        let hash = install_emitter_from_path(&source, &destination).unwrap();
+
+        assert_eq!(
+            fs::read(&destination).unwrap(),
+            b"agent-notify test emitter"
+        );
+        assert_eq!(hash, sha256_hex(b"agent-notify test emitter"));
+    }
+
+    #[test]
+    fn managed_hooks_use_runtime_safe_timeout() {
+        let template =
+            codex_template("powershell -File hook.ps1 --tool {tool} --hook-event {event}");
+        let timeout = template["hooks"]["Stop"][0]["hooks"][0]["timeout"]
+            .as_u64()
+            .unwrap();
+
+        assert_eq!(timeout, HOOK_COMMAND_TIMEOUT_SECONDS);
+        assert!(timeout > 2);
+    }
+
+    #[test]
+    fn source_hook_falls_back_to_embedded_script() {
+        let dir = tempfile::tempdir().unwrap();
+        let app_dir = dir.path().join("app");
+        let paths = HookInstallPaths {
+            installed_hook: app_dir.join("hooks").join("agent-notify-hook.ps1"),
+            installed_emitter: app_dir.join("bin").join(agent_notify_exe_name()),
+            manifest: app_dir.join("hooks").join("manifest.json"),
+            hook_install_dir: app_dir.join("hooks"),
+            emitter_install_dir: app_dir.join("bin"),
+            backups_dir: app_dir.join("backups"),
+            claude_settings: dir.path().join(".claude").join("settings.json"),
+            codex_hooks: dir.path().join(".codex").join("hooks.json"),
+            codex_config: dir.path().join(".codex").join("config.toml"),
+            source_hook: dir.path().join("missing-agent-notify-hook.ps1"),
+            app_dir,
+        };
+
+        let bytes = source_hook_bytes(&paths).unwrap();
+
+        assert!(String::from_utf8_lossy(&bytes).contains("New-AgentNotifyEvent"));
     }
 
     #[test]

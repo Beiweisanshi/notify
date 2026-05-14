@@ -1,7 +1,9 @@
 /target/
+/node_modules/
 /dist/
 /build/
 /.tauri/
+/src-tauri/binaries/
 /.env
 *.log
 *.tmp

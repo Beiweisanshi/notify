@@ -176,6 +176,10 @@ pub fn build_event_from_hook(
             started_at: text_field(payload, &["process_started_at", "processStartedAt"]),
         }),
         window: Some(WindowInfo {
+            pid: u32_field(
+                payload,
+                &["window_pid", "windowPid", "terminal_pid", "terminalPid"],
+            ),
             title: context
                 .window_title
                 .or_else(|| text_field(payload, &["window_title", "windowTitle", "title"])),

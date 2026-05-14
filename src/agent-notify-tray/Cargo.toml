@@ -16,4 +16,9 @@ http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+reqwest.workspace = true
+uuid.workspace = true
 windows-sys.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Agent Notify",
+  "version": "0.1.0",
+  "identifier": "local.agent-notify.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev:ui",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build:sidecars && npm run build:ui",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Agent Notify",
+        "width": 360,
+        "height": 54,
+        "minWidth": 360,
+        "minHeight": 18,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "transparent": true,
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": [
+      "binaries/agent-notify",
+      "binaries/agent-notify-activate",
+      "binaries/agent-notify-tray"
+    ],
+    "icon": [
+      "../assets/agent-notify-icon.png",
+      "../assets/agent-notify-icon.ico"
+    ]
+  }
+}

@@ -94,6 +94,8 @@ pub struct ProcessInfo {
 #[serde(rename_all = "camelCase")]
 pub struct WindowInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hwnd: Option<isize>,

@@ -4,7 +4,7 @@
 
 通知只负责提醒用户“哪个会话需要处理”，不在通知中暴露完整命令、完整输出或敏感参数，也不允许直接批准 Claude/Codex 的权限请求。
 
-当前实现中，通知由 `agent-notify-tray` 后台根据 `NotificationView` 生成，并通过 PowerShell Windows Runtime Toast 展示。后台启动时会创建或更新当前用户的 `智能任务通知.lnk`，写入自定义图标资源，发送时通过 `Get-StartApps` 获取 AppID。内置 hook 生成的 Toast 默认使用中文标题、正文和截断到 160 字符的详情；点击回调、忽略、静音、session 详情页和 Tauri 托盘 UI 尚未实现。
+当前实现中，通知由 `agent-notify-tray` 后台根据 `NotificationView` 生成，并通过 PowerShell Windows Runtime Toast 展示。后台启动时会创建或更新当前用户的 `智能任务通知.lnk`，注册 `agent-notify://` 协议，写入自定义图标资源，创建原生托盘退出菜单，发送时通过 `Get-StartApps` 获取 AppID。内置 hook 生成的 Toast 默认使用中文标题、正文和截断到 160 字符的详情；点击通知主体会通过短期 activation nonce best-effort 唤回对应终端窗口，忽略、静音、session 详情页和 Tauri 托盘管理 UI 尚未实现。
 
 ## 通知模板
 
@@ -52,7 +52,7 @@
 - 正文只显示项目名、会话名或目录名，以及动作提示。
 - 详情最多 160 个字符。
 - 默认隐藏完整命令参数、完整终端输出、token、路径中的敏感片段。
-- 当前 Windows MVP 只承诺展示 Toast 文本；点击通知主体打开窗口尚未实现。后续点击 deep link 必须使用短期 activation nonce，不能把 Bearer token 放进 URI。
+- 当前 Windows MVP 支持点击通知主体打开窗口：Toast deep link 只携带短期 activation nonce，不把 Bearer token 放进 URI；后台按 HWND、PID、父 PID、窗口标题顺序 best-effort 聚焦。
 - `忽略`、`静音此项目` 放在后续 Tauri 托盘 UI 中。
 - 不允许在通知里批准命令或继续对话。
 - 默认不显示具体命令名。是否显示命令名必须作为用户显式隐私选项。

@@ -1,0 +1,1470 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Floating Status Bar Prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #e8edf3;
+      --bg-2: #eef2f7;
+      --panel: rgba(17, 24, 39, 0.95);
+      --panel-2: rgba(30, 41, 59, 0.96);
+      --line: rgba(148, 163, 184, 0.18);
+      --line-strong: rgba(148, 163, 184, 0.32);
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --soft: #cbd5e1;
+      --green: #22c55e;
+      --amber: #f59e0b;
+      --blue: #38bdf8;
+      --red: #fb7185;
+      --shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background:
+        linear-gradient(180deg, var(--bg) 0%, #dde4ec 100%);
+      color: #0f172a;
+    }
+
+    .desktop {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0)),
+        repeating-linear-gradient(
+          90deg,
+          rgba(15, 23, 42, 0.04) 0,
+          rgba(15, 23, 42, 0.04) 1px,
+          transparent 1px,
+          transparent 160px
+        ),
+        repeating-linear-gradient(
+          0deg,
+          rgba(15, 23, 42, 0.03) 0,
+          rgba(15, 23, 42, 0.03) 1px,
+          transparent 1px,
+          transparent 120px
+        );
+    }
+
+    .desktop-label {
+      position: absolute;
+      left: 24px;
+      top: 18px;
+      font-size: 12px;
+      letter-spacing: 0;
+      color: rgba(15, 23, 42, 0.62);
+      user-select: none;
+    }
+
+    .terminal {
+      position: absolute;
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: rgba(15, 23, 42, 0.96);
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      color: var(--text);
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.15);
+      transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+    }
+
+    .terminal.active {
+      border-color: rgba(34, 197, 94, 0.78);
+      box-shadow: 0 22px 48px rgba(15, 23, 42, 0.24), 0 0 0 1px rgba(34, 197, 94, 0.28);
+      transform: translateY(-2px) scale(1.015);
+      z-index: 6;
+    }
+
+    .terminal.flash {
+      animation: flash 700ms ease;
+    }
+
+    @keyframes flash {
+      0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.0); }
+      35% { box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.32); }
+      100% { box-shadow: 0 22px 48px rgba(15, 23, 42, 0.24), 0 0 0 1px rgba(34, 197, 94, 0.28); }
+    }
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px;
+      background: rgba(17, 24, 39, 0.9);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+      min-width: 0;
+    }
+
+    .terminal-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .terminal-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      flex: 0 0 auto;
+    }
+
+    .terminal-name {
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 190px;
+    }
+
+    .terminal-meta {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 160px;
+      flex: 0 0 auto;
+    }
+
+    .terminal-body {
+      padding: 12px 12px 14px;
+      display: grid;
+      gap: 8px;
+      font-family: Consolas, "SFMono-Regular", "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #dbe4ef;
+    }
+
+    .line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .prompt {
+      color: #7dd3fc;
+      flex: 0 0 auto;
+    }
+
+    .text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .cursor {
+      display: inline-block;
+      width: 8px;
+      height: 14px;
+      background: var(--text);
+      border-radius: 1px;
+      opacity: 0.85;
+      animation: blink 1.1s step-end infinite;
+      flex: 0 0 auto;
+    }
+
+    @keyframes blink {
+      0%, 49% { opacity: 0.85; }
+      50%, 100% { opacity: 0.15; }
+    }
+
+    .bar,
+    .hidden-tab,
+    .chooser,
+    .toast {
+      position: fixed;
+      z-index: 20;
+    }
+
+    .bar {
+      width: 312px;
+      border-radius: var(--radius);
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      user-select: none;
+      backdrop-filter: blur(18px);
+      overflow: hidden;
+    }
+
+    .bar.dragging {
+      opacity: 0.94;
+      transform: scale(1.01);
+    }
+
+    .bar-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 7px;
+      cursor: grab;
+    }
+
+    .bar-header:active {
+      cursor: grabbing;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      min-width: 0;
+      flex: 0 0 auto;
+    }
+
+    .brand-mark {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      background: linear-gradient(135deg, var(--green), #14b8a6);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
+      flex: 0 0 auto;
+    }
+
+    .metrics {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex: 0 0 auto;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 0;
+      border-radius: 6px;
+      padding: 4px 6px;
+      background: rgba(148, 163, 184, 0.12);
+      color: var(--text);
+      min-width: 54px;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .chip:hover {
+      background: rgba(148, 163, 184, 0.18);
+    }
+
+    .chip.completed {
+      background: rgba(245, 158, 11, 0.16);
+    }
+
+    .chip.completed:hover {
+      background: rgba(245, 158, 11, 0.24);
+    }
+
+    .chip-label {
+      font-size: 9px;
+      color: var(--soft);
+      line-height: 1;
+      flex: 0 0 auto;
+    }
+
+    .chip-value {
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .tools {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      flex: 0 0 auto;
+    }
+
+    .icon-btn {
+      width: 22px;
+      height: 22px;
+      border: 0;
+      border-radius: 6px;
+      background: rgba(148, 163, 184, 0.12);
+      color: var(--text);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0;
+      font-size: 13px;
+      line-height: 1;
+    }
+
+    .icon-btn:hover {
+      background: rgba(148, 163, 184, 0.2);
+    }
+
+    .icon-btn.warn:hover {
+      background: rgba(251, 113, 133, 0.22);
+    }
+
+    .bar-body {
+      border-top: 1px solid rgba(148, 163, 184, 0.12);
+      padding: 8px;
+      display: none;
+      gap: 10px;
+    }
+
+    .bar.expanded .bar-body {
+      display: grid;
+    }
+
+    .section {
+      display: grid;
+      gap: 8px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .session-list,
+    .notification-list {
+      display: grid;
+      gap: 6px;
+    }
+
+    .session-row,
+    .notification-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+      padding: 8px 8px;
+      border-radius: 6px;
+      background: rgba(148, 163, 184, 0.08);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+    }
+
+    .session-row:hover,
+    .notification-row:hover {
+      background: rgba(148, 163, 184, 0.14);
+      border-color: rgba(148, 163, 184, 0.18);
+      transform: translateY(-1px);
+    }
+
+    .session-row.active {
+      border-color: rgba(34, 197, 94, 0.38);
+      background: rgba(34, 197, 94, 0.12);
+    }
+
+    .row-main {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1 1 auto;
+    }
+
+    .row-text {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+
+    .row-title {
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .row-subtitle {
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex: 0 0 auto;
+    }
+
+    .dot.running {
+      background: var(--green);
+    }
+
+    .dot.completed {
+      background: var(--amber);
+    }
+
+    .row-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      line-height: 1;
+      color: #e2e8f0;
+      background: rgba(148, 163, 184, 0.14);
+    }
+
+    .badge.green {
+      background: rgba(34, 197, 94, 0.16);
+      color: #bbf7d0;
+    }
+
+    .badge.amber {
+      background: rgba(245, 158, 11, 0.18);
+      color: #fde68a;
+    }
+
+    .hidden-tab {
+      width: 312px;
+      height: 16px;
+      border-radius: 999px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      overflow: hidden;
+      backdrop-filter: blur(18px);
+    }
+
+    .hidden-tab.visible {
+      display: grid;
+    }
+
+    .hidden-tab-inner {
+      display: grid;
+      place-items: center;
+      color: var(--text);
+      line-height: 1;
+      user-select: none;
+    }
+
+    .stack {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-weight: 700;
+    }
+
+    .stack span {
+      width: 38px;
+      height: 4px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: rgba(203, 213, 225, 0.42);
+      color: transparent;
+    }
+
+    .chooser {
+      min-width: 340px;
+      max-width: 420px;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      display: none;
+      overflow: hidden;
+      backdrop-filter: blur(18px);
+    }
+
+    .chooser.visible {
+      display: grid;
+    }
+
+    .chooser-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 12px 10px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    .chooser-title {
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .chooser-subtitle {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+      line-height: 1.2;
+    }
+
+    .chooser-body {
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      max-height: 300px;
+      overflow: auto;
+    }
+
+    .chooser-empty {
+      padding: 18px 10px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .chooser-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 6px;
+      background: rgba(148, 163, 184, 0.08);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+
+    .chooser-row:hover {
+      background: rgba(148, 163, 184, 0.14);
+      border-color: rgba(148, 163, 184, 0.18);
+    }
+
+    .chooser-row-main {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+      flex: 1 1 auto;
+    }
+
+    .chooser-row-title {
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .chooser-row-subtitle {
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .chooser-row-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+
+    .chooser-footer {
+      padding: 0 12px 12px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .toast {
+      width: 312px;
+      max-width: calc(100vw - 32px);
+      background: rgba(15, 23, 42, 0.95);
+      color: var(--text);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: none;
+      gap: 5px;
+      z-index: 40;
+      backdrop-filter: blur(18px);
+    }
+
+    .toast.visible {
+      display: grid;
+      animation: toastIn 180ms ease;
+    }
+
+    @keyframes toastIn {
+      from { transform: translateY(6px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .toast-title {
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .toast-body {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .settings-popover {
+      position: absolute;
+      top: 40px;
+      right: 10px;
+      min-width: 172px;
+      border-radius: 8px;
+      background: rgba(15, 23, 42, 0.96);
+      color: var(--text);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      display: none;
+      padding: 10px;
+      z-index: 50;
+    }
+
+    .settings-popover.visible {
+      display: grid;
+      gap: 8px;
+    }
+
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 11px;
+      color: var(--soft);
+    }
+
+    .keycap {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 42px;
+      padding: 3px 6px;
+      border-radius: 6px;
+      background: rgba(148, 163, 184, 0.12);
+      color: var(--text);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="desktop">
+    <div class="desktop-label">桌面预览</div>
+
+    <div class="terminal" id="terminal-s1" style="left: 76px; top: 112px; width: 404px; height: 250px;">
+      <div class="terminal-header">
+        <div class="terminal-title">
+          <span class="terminal-dot"></span>
+          <span class="terminal-name">Claude · api-server</span>
+        </div>
+        <div class="terminal-meta">running</div>
+      </div>
+      <div class="terminal-body">
+        <div class="line"><span class="prompt">&gt;</span><span class="text">watch build -- ready</span></div>
+        <div class="line"><span class="prompt">&gt;</span><span class="text">waiting for the next step</span></div>
+        <div class="line"><span class="prompt">&gt;</span><span class="text">terminal stays in place</span><span class="cursor"></span></div>
+      </div>
+    </div>
+
+    <div class="terminal" id="terminal-s2" style="right: 72px; top: 86px; width: 360px; height: 226px;">
+      <div class="terminal-header">
+        <div class="terminal-title">
+          <span class="terminal-dot"></span>
+          <span class="terminal-name">Codex · notify-ui</span>
+        </div>
+        <div class="terminal-meta">running</div>
+      </div>
+      <div class="terminal-body">
+        <div class="line"><span class="prompt">$</span><span class="text">render floating status bar</span></div>
+        <div class="line"><span class="prompt">$</span><span class="text">drag handle enabled</span></div>
+        <div class="line"><span class="prompt">$</span><span class="text">hotkey armed</span><span class="cursor"></span></div>
+      </div>
+    </div>
+
+    <div class="terminal" id="terminal-s3" style="left: 280px; bottom: 88px; width: 432px; height: 252px;">
+      <div class="terminal-header">
+        <div class="terminal-title">
+          <span class="terminal-dot"></span>
+          <span class="terminal-name">Claude · deploy</span>
+        </div>
+        <div class="terminal-meta">completed</div>
+      </div>
+      <div class="terminal-body">
+        <div class="line"><span class="prompt">#</span><span class="text">task finished successfully</span></div>
+        <div class="line"><span class="prompt">#</span><span class="text">2 unread notifications available</span></div>
+        <div class="line"><span class="prompt">#</span><span class="text">focus target: deploy window</span></div>
+      </div>
+    </div>
+
+    <div class="terminal" id="terminal-s4" style="right: 120px; bottom: 128px; width: 310px; height: 198px;">
+      <div class="terminal-header">
+        <div class="terminal-title">
+          <span class="terminal-dot"></span>
+          <span class="terminal-name">Codex · docs</span>
+        </div>
+        <div class="terminal-meta">completed</div>
+      </div>
+      <div class="terminal-body">
+        <div class="line"><span class="prompt">#</span><span class="text">waiting for user input</span></div>
+        <div class="line"><span class="prompt">#</span><span class="text">1 unread notification available</span></div>
+        <div class="line"><span class="prompt">#</span><span class="text">focus target: docs window</span></div>
+      </div>
+    </div>
+
+    <div class="terminal" id="terminal-s5" style="left: 612px; top: 336px; width: 340px; height: 196px;">
+      <div class="terminal-header">
+        <div class="terminal-title">
+          <span class="terminal-dot"></span>
+          <span class="terminal-name">Codex · cleanup</span>
+        </div>
+        <div class="terminal-meta">completed</div>
+      </div>
+      <div class="terminal-body">
+        <div class="line"><span class="prompt">#</span><span class="text">all notifications already opened</span></div>
+        <div class="line"><span class="prompt">#</span><span class="text">click completed row shows empty state</span></div>
+        <div class="line"><span class="prompt">#</span><span class="text">window stays behind the active one</span></div>
+      </div>
+    </div>
+
+    <div class="bar" id="bar">
+      <div class="bar-header" id="dragHandle">
+        <div class="brand">
+          <span class="brand-mark"></span>
+        </div>
+
+        <div class="metrics">
+          <button class="chip" id="totalChip" type="button" title="终端总数">
+            <span class="chip-label">终端</span>
+            <span class="chip-value" id="totalCount">0</span>
+          </button>
+          <button class="chip" id="runningChip" type="button" title="运行中">
+            <span class="chip-label">运行</span>
+            <span class="chip-value" id="runningCount">0</span>
+          </button>
+          <button class="chip completed" id="completedChip" type="button" title="完成">
+            <span class="chip-label">完成</span>
+            <span class="chip-value" id="completedCount">0</span>
+          </button>
+        </div>
+
+        <div class="tools">
+          <button class="icon-btn" id="hotkeyBtn" type="button" title="Ctrl+Shift+Space">⌘</button>
+          <button class="icon-btn" id="expandBtn" type="button" title="展开/收起">▾</button>
+          <button class="icon-btn warn" id="hideBtn" type="button" title="隐藏">✕</button>
+        </div>
+      </div>
+
+      <div class="bar-body" id="barBody">
+        <div class="section">
+          <div class="section-title">
+            <span>运行中</span>
+            <span id="runningLiveCount">0</span>
+          </div>
+          <div class="session-list" id="runningList"></div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">
+            <span>完成</span>
+            <span id="completedLiveCount">0</span>
+          </div>
+          <div class="session-list" id="completedList"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hidden-tab" id="hiddenTab" title="点击唤出">
+      <div class="hidden-tab-inner">
+        <div class="stack">
+          <span>◉</span>
+          <span>▤</span>
+          <span>▤</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="chooser" id="chooser">
+      <div class="chooser-header">
+        <div>
+          <div class="chooser-title" id="chooserTitle">未点击通知</div>
+          <div class="chooser-subtitle" id="chooserSubtitle">点击一条通知回到对应终端</div>
+        </div>
+        <button class="icon-btn" id="closeChooser" type="button" title="关闭">✕</button>
+      </div>
+      <div class="chooser-body" id="chooserBody"></div>
+      <div class="chooser-footer" id="chooserFooter"></div>
+    </div>
+
+    <div class="toast" id="toast">
+      <div class="toast-title" id="toastTitle"></div>
+      <div class="toast-body" id="toastBody"></div>
+    </div>
+
+    <div class="settings-popover" id="settingsPopover">
+      <div class="setting-row">
+        <span>唤出快捷键</span>
+        <span class="keycap">Ctrl + Shift + Space</span>
+      </div>
+      <div class="setting-row">
+        <span>隐藏方式</span>
+        <span class="keycap">×</span>
+      </div>
+      <div class="setting-row">
+        <span>拖动方式</span>
+        <span class="keycap">标题栏</span>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const STORAGE_KEY = "agent-notify-floating-status-bar-prototype-v2";
+
+    const initialSessions = [
+      {
+        id: "s1",
+        tool: "Claude",
+        name: "api-server",
+        status: "running",
+        cwd: "D:\\projects\\api-server",
+        title: "Claude · api-server",
+        detail: "running · waiting for next step",
+        unreadCount: 0,
+      },
+      {
+        id: "s2",
+        tool: "Codex",
+        name: "notify-ui",
+        status: "running",
+        cwd: "D:\\projects\\notify-ui",
+        title: "Codex · notify-ui",
+        detail: "running · preparing floating bar",
+        unreadCount: 0,
+      },
+      {
+        id: "s3",
+        tool: "Claude",
+        name: "deploy",
+        status: "completed",
+        cwd: "D:\\projects\\deploy",
+        title: "Claude · deploy",
+        detail: "completed · 2 unread notifications",
+        unreadCount: 2,
+      },
+      {
+        id: "s4",
+        tool: "Codex",
+        name: "docs",
+        status: "completed",
+        cwd: "D:\\projects\\docs",
+        title: "Codex · docs",
+        detail: "completed · 1 unread notification",
+        unreadCount: 1,
+      },
+      {
+        id: "s5",
+        tool: "Codex",
+        name: "cleanup",
+        status: "completed",
+        cwd: "D:\\projects\\cleanup",
+        title: "Codex · cleanup",
+        detail: "completed · all notifications opened",
+        unreadCount: 0,
+      },
+    ];
+
+    const initialNotifications = [
+      { id: "n1", sessionId: "s3", title: "任务完成", body: "deploy · 2 分钟前", eventType: "task.completed", clicked: false },
+      { id: "n2", sessionId: "s3", title: "需要确认", body: "deploy · 9 分钟前", eventType: "user.confirmation_required", clicked: false },
+      { id: "n3", sessionId: "s4", title: "等待输入", body: "docs · 6 分钟前", eventType: "user.input_required", clicked: false },
+      { id: "n4", sessionId: "s5", title: "任务完成", body: "cleanup · 已点开", eventType: "task.completed", clicked: true },
+    ];
+
+    const state = {
+      hidden: false,
+      expanded: false,
+      chooserOpen: false,
+      chooserScope: "all",
+      activeSessionId: "s3",
+      focusFlashSessionId: null,
+      lastJumpText: "",
+      barPosition: null,
+      sessions: initialSessions,
+      notifications: initialNotifications,
+    };
+
+    const bar = document.getElementById("bar");
+    const barBody = document.getElementById("barBody");
+    const dragHandle = document.getElementById("dragHandle");
+    const hiddenTab = document.getElementById("hiddenTab");
+    const chooser = document.getElementById("chooser");
+    const chooserTitle = document.getElementById("chooserTitle");
+    const chooserSubtitle = document.getElementById("chooserSubtitle");
+    const chooserBody = document.getElementById("chooserBody");
+    const chooserFooter = document.getElementById("chooserFooter");
+    const toast = document.getElementById("toast");
+    const toastTitle = document.getElementById("toastTitle");
+    const toastBody = document.getElementById("toastBody");
+    const settingsPopover = document.getElementById("settingsPopover");
+    const totalCount = document.getElementById("totalCount");
+    const runningCount = document.getElementById("runningCount");
+    const completedCount = document.getElementById("completedCount");
+    const runningLiveCount = document.getElementById("runningLiveCount");
+    const completedLiveCount = document.getElementById("completedLiveCount");
+    const runningList = document.getElementById("runningList");
+    const completedList = document.getElementById("completedList");
+    const hotkeyBtn = document.getElementById("hotkeyBtn");
+    const expandBtn = document.getElementById("expandBtn");
+    const hideBtn = document.getElementById("hideBtn");
+    const completedChip = document.getElementById("completedChip");
+    const closeChooser = document.getElementById("closeChooser");
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const stored = JSON.parse(raw);
+        if (stored && typeof stored === "object") {
+          if (typeof stored.hidden === "boolean") state.hidden = stored.hidden;
+          if (typeof stored.expanded === "boolean") state.expanded = stored.expanded;
+          if (typeof stored.activeSessionId === "string") state.activeSessionId = stored.activeSessionId;
+          if (stored.barPosition && typeof stored.barPosition.x === "number" && typeof stored.barPosition.y === "number") {
+            state.barPosition = stored.barPosition;
+          }
+          if (Array.isArray(stored.notifications)) {
+            for (const saved of stored.notifications) {
+              const item = state.notifications.find((entry) => entry.id === saved.id);
+              if (item && typeof saved.clicked === "boolean") {
+                item.clicked = saved.clicked;
+              }
+            }
+          }
+          if (Array.isArray(stored.sessions)) {
+            for (const saved of stored.sessions) {
+              const item = state.sessions.find((entry) => entry.id === saved.id);
+              if (item && typeof saved.unreadCount === "number") {
+                item.unreadCount = saved.unreadCount;
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // Prototype only.
+      }
+    }
+
+    function persistState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          hidden: state.hidden,
+          expanded: state.expanded,
+          activeSessionId: state.activeSessionId,
+          barPosition: state.barPosition,
+          sessions: state.sessions.map(({ id, unreadCount }) => ({ id, unreadCount })),
+          notifications: state.notifications.map(({ id, clicked }) => ({ id, clicked })),
+        }));
+      } catch (_) {
+        // Prototype only.
+      }
+    }
+
+    function setBarPosition(x, y) {
+      const width = Math.max(bar.offsetWidth, hiddenTab.offsetWidth, 312);
+      const height = state.hidden
+        ? Math.max(hiddenTab.offsetHeight, 16)
+        : Math.max(bar.offsetHeight, 32);
+      const maxX = Math.max(8, window.innerWidth - width - 8);
+      const maxY = Math.max(8, window.innerHeight - height - 8);
+      const nextX = Math.min(Math.max(8, x), maxX);
+      const nextY = Math.min(Math.max(8, y), maxY);
+      state.barPosition = { x: nextX, y: nextY };
+      bar.style.left = `${nextX}px`;
+      bar.style.top = `${nextY}px`;
+      hiddenTab.style.left = `${nextX}px`;
+      hiddenTab.style.top = `${nextY}px`;
+      chooser.style.left = `${Math.min(nextX + width + 14, window.innerWidth - chooser.offsetWidth - 16)}px`;
+      chooser.style.top = `${Math.min(nextY, window.innerHeight - chooser.offsetHeight - 16)}px`;
+      positionToast();
+      persistState();
+    }
+
+    function initPosition() {
+      if (state.barPosition) {
+        setBarPosition(state.barPosition.x, state.barPosition.y);
+        return;
+      }
+      const x = 24;
+      const y = window.innerHeight - 144;
+      setBarPosition(x, y);
+    }
+
+    function totalSessions() {
+      return state.sessions.length;
+    }
+
+    function runningSessions() {
+      return state.sessions.filter((session) => session.status === "running");
+    }
+
+    function completedSessions() {
+      return state.sessions.filter((session) => session.status === "completed");
+    }
+
+    function unreadNotifications(sessionId) {
+      return state.notifications.filter((item) => {
+        if (item.clicked) return false;
+        if (sessionId && item.sessionId !== sessionId) return false;
+        const session = state.sessions.find((entry) => entry.id === item.sessionId);
+        return session && session.status === "completed";
+      });
+    }
+
+    function unreadCountBySession(sessionId) {
+      return unreadNotifications(sessionId).length;
+    }
+
+    function renderCounts() {
+      totalCount.textContent = String(totalSessions());
+      runningCount.textContent = String(runningSessions().length);
+      completedCount.textContent = String(completedSessions().length);
+      runningLiveCount.textContent = String(runningSessions().length);
+      completedLiveCount.textContent = String(completedSessions().length);
+    }
+
+    function renderSessions() {
+      const activeSessionId = state.activeSessionId;
+      runningList.innerHTML = "";
+      completedList.innerHTML = "";
+
+      for (const session of runningSessions()) {
+        runningList.appendChild(createSessionRow(session, false));
+      }
+
+      for (const session of completedSessions()) {
+        completedList.appendChild(createSessionRow(session, true));
+      }
+
+      for (const terminal of document.querySelectorAll(".terminal")) {
+        terminal.classList.remove("active", "flash");
+      }
+      const activeTerminal = document.getElementById(`terminal-${activeSessionId}`);
+      if (activeTerminal) {
+        activeTerminal.classList.add("active");
+      }
+    }
+
+    function createSessionRow(session, isCompleted) {
+      const row = document.createElement("div");
+      row.className = `session-row ${state.activeSessionId === session.id ? "active" : ""}`;
+      row.dataset.sessionId = session.id;
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+
+      const main = document.createElement("div");
+      main.className = "row-main";
+
+      const dot = document.createElement("span");
+      dot.className = `dot ${isCompleted ? "completed" : "running"}`;
+
+      const text = document.createElement("div");
+      text.className = "row-text";
+
+      const title = document.createElement("div");
+      title.className = "row-title";
+      title.textContent = `${session.tool} · ${session.name}`;
+
+      const subtitle = document.createElement("div");
+      subtitle.className = "row-subtitle";
+      subtitle.textContent = session.detail;
+
+      text.appendChild(title);
+      text.appendChild(subtitle);
+      main.appendChild(dot);
+      main.appendChild(text);
+
+      const right = document.createElement("div");
+      right.className = "row-right";
+      const unread = unreadCountBySession(session.id);
+      const badge = document.createElement("span");
+      badge.className = `badge ${isCompleted ? "amber" : "green"}`;
+      badge.textContent = isCompleted ? `${unread} 未点` : "运行中";
+      right.appendChild(badge);
+
+      row.appendChild(main);
+      row.appendChild(right);
+
+      row.addEventListener("click", () => {
+        if (isCompleted) {
+          openChooser(session.id);
+        } else {
+          focusSession(session.id);
+        }
+      });
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          row.click();
+        }
+      });
+
+      return row;
+    }
+
+    function renderChooser() {
+      chooserBody.innerHTML = "";
+      if (!state.chooserOpen) {
+        chooser.classList.remove("visible");
+        return;
+      }
+
+      const rows = state.chooserScope === "all"
+        ? unreadNotifications()
+        : unreadNotifications(state.chooserScope);
+
+      chooser.classList.add("visible");
+
+      if (state.chooserScope === "all") {
+        chooserTitle.textContent = "未点击通知";
+        chooserSubtitle.textContent = "选择一条通知回到对应终端";
+      } else {
+        const session = state.sessions.find((entry) => entry.id === state.chooserScope);
+        chooserTitle.textContent = session ? `${session.tool} · ${session.name}` : "未点击通知";
+        chooserSubtitle.textContent = "当前完成终端的未点击通知";
+      }
+
+      chooserFooter.textContent = rows.length ? `共 ${rows.length} 条未点通知` : "没有未点击的通知";
+
+      if (!rows.length) {
+        const empty = document.createElement("div");
+        empty.className = "chooser-empty";
+        empty.textContent = "没有未点击的通知";
+        chooserBody.appendChild(empty);
+        return;
+      }
+
+      rows.forEach((notification) => {
+        const session = state.sessions.find((entry) => entry.id === notification.sessionId);
+        const row = document.createElement("div");
+        row.className = "chooser-row";
+        row.dataset.notificationId = notification.id;
+        row.tabIndex = 0;
+        row.setAttribute("role", "button");
+
+        const main = document.createElement("div");
+        main.className = "chooser-row-main";
+
+        const title = document.createElement("div");
+        title.className = "chooser-row-title";
+        title.textContent = `${session ? session.tool : "终端"} · ${session ? session.name : notification.sessionId}`;
+
+        const subtitle = document.createElement("div");
+        subtitle.className = "chooser-row-subtitle";
+        subtitle.textContent = `${notification.title} · ${notification.body}`;
+
+        main.appendChild(title);
+        main.appendChild(subtitle);
+
+        const right = document.createElement("div");
+        right.className = "chooser-row-right";
+        const badge = document.createElement("span");
+        badge.className = "badge amber";
+        badge.textContent = notification.eventType;
+        right.appendChild(badge);
+
+        row.appendChild(main);
+        row.appendChild(right);
+
+        row.addEventListener("click", () => {
+          focusNotification(notification.id);
+        });
+        row.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            row.click();
+          }
+        });
+
+        chooserBody.appendChild(row);
+      });
+    }
+
+    function focusSession(sessionId) {
+      state.activeSessionId = sessionId;
+      state.focusFlashSessionId = sessionId;
+      state.lastJumpText = `${sessionLabel(sessionId)} · 已切回`;
+      showToast("终端已聚焦", state.lastJumpText);
+      renderSessions();
+      persistState();
+      flashTerminal(sessionId);
+    }
+
+    function focusNotification(notificationId) {
+      const notification = state.notifications.find((entry) => entry.id === notificationId);
+      if (!notification) return;
+
+      const session = state.sessions.find((entry) => entry.id === notification.sessionId);
+      if (!session) return;
+
+      if (!notification.clicked) {
+        notification.clicked = true;
+        session.unreadCount = Math.max(0, session.unreadCount - 1);
+      }
+
+      state.activeSessionId = session.id;
+      state.lastJumpText = `${sessionLabel(session.id)} · ${notification.title}`;
+      showToast("已切回终端", state.lastJumpText);
+      renderSessions();
+      renderChooser();
+      persistState();
+      flashTerminal(session.id);
+      closeChooserPanel(true);
+    }
+
+    function sessionLabel(sessionId) {
+      const session = state.sessions.find((entry) => entry.id === sessionId);
+      if (!session) return sessionId;
+      return `${session.tool} · ${session.name}`;
+    }
+
+    function flashTerminal(sessionId) {
+      const terminal = document.getElementById(`terminal-${sessionId}`);
+      if (!terminal) return;
+      terminal.classList.add("flash");
+      terminal.classList.add("active");
+      terminal.style.zIndex = "8";
+      setTimeout(() => {
+        terminal.classList.remove("flash");
+        terminal.style.zIndex = "";
+        for (const other of document.querySelectorAll(".terminal")) {
+          if (other.id !== terminal.id && other.classList.contains("active")) {
+            other.style.zIndex = "6";
+          }
+        }
+      }, 700);
+    }
+
+    function openChooser(scopeSessionId = "all") {
+      state.chooserOpen = true;
+      state.chooserScope = scopeSessionId;
+      renderChooser();
+      positionChooser();
+      persistState();
+    }
+
+    function closeChooserPanel(silent = false) {
+      state.chooserOpen = false;
+      chooser.classList.remove("visible");
+      if (!silent) {
+        persistState();
+      }
+    }
+
+    function positionChooser() {
+      if (!state.chooserOpen) return;
+      const barRect = bar.getBoundingClientRect();
+      const chooserWidth = Math.min(420, Math.max(340, chooser.offsetWidth || 360));
+      const chooserHeight = Math.min(380, Math.max(220, chooser.offsetHeight || 300));
+      const left = Math.min(barRect.right + 14, window.innerWidth - chooserWidth - 16);
+      const top = Math.min(barRect.top, window.innerHeight - chooserHeight - 16);
+      chooser.style.left = `${Math.max(16, left)}px`;
+      chooser.style.top = `${Math.max(16, top)}px`;
+    }
+
+    function showToast(title, body) {
+      toastTitle.textContent = title;
+      toastBody.textContent = body;
+      toast.classList.add("visible");
+      positionToast();
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(() => {
+        toast.classList.remove("visible");
+      }, 2200);
+    }
+
+    function positionToast() {
+      if (!toast) return;
+      const anchor = state.hidden ? hiddenTab : bar;
+      const anchorRect = anchor.getBoundingClientRect();
+      const toastWidth = Math.min(312, window.innerWidth - 32);
+      const toastHeight = Math.max(toast.offsetHeight, 56);
+      const left = Math.min(
+        Math.max(16, anchorRect.left),
+        Math.max(16, window.innerWidth - toastWidth - 16)
+      );
+      const belowTop = anchorRect.bottom + 8;
+      const aboveTop = anchorRect.top - toastHeight - 8;
+      const top = belowTop + toastHeight <= window.innerHeight - 16
+        ? belowTop
+        : Math.max(16, aboveTop);
+      toast.style.left = `${left}px`;
+      toast.style.top = `${top}px`;
+      toast.style.width = `${toastWidth}px`;
+    }
+
+    function setHidden(hidden) {
+      state.hidden = hidden;
+      bar.style.display = hidden ? "none" : "block";
+      hiddenTab.classList.toggle("visible", hidden);
+      if (hidden) {
+        closeChooserPanel(true);
+        showToast("状态栏已隐藏", "按 Ctrl + Shift + Space 唤出");
+      } else {
+        hiddenTab.classList.remove("visible");
+      }
+      positionToast();
+      persistState();
+    }
+
+    function toggleExpanded() {
+      state.expanded = !state.expanded;
+      bar.classList.toggle("expanded", state.expanded);
+      expandBtn.textContent = state.expanded ? "▾" : "▸";
+      persistState();
+      positionChooser();
+    }
+
+    function toggleSettings() {
+      settingsPopover.classList.toggle("visible");
+    }
+
+    let drag = null;
+    dragHandle.addEventListener("pointerdown", (event) => {
+      if (state.hidden) return;
+      drag = {
+        startX: event.clientX,
+        startY: event.clientY,
+        barX: state.barPosition ? state.barPosition.x : bar.offsetLeft,
+        barY: state.barPosition ? state.barPosition.y : bar.offsetTop,
+      };
+      bar.classList.add("dragging");
+      dragHandle.setPointerCapture(event.pointerId);
+    });
+
+    dragHandle.addEventListener("pointermove", (event) => {
+      if (!drag) return;
+      const x = drag.barX + (event.clientX - drag.startX);
+      const y = drag.barY + (event.clientY - drag.startY);
+      setBarPosition(x, y);
+      positionChooser();
+    });
+
+    dragHandle.addEventListener("pointerup", () => {
+      drag = null;
+      bar.classList.remove("dragging");
+      persistState();
+    });
+
+    dragHandle.addEventListener("dblclick", () => {
+      toggleExpanded();
+    });
+
+    hideBtn.addEventListener("click", () => {
+      setHidden(true);
+    });
+
+    hiddenTab.addEventListener("click", () => {
+      setHidden(false);
+    });
+
+    hotkeyBtn.addEventListener("click", toggleSettings);
+    expandBtn.addEventListener("click", toggleExpanded);
+    completedChip.addEventListener("click", () => openChooser("all"));
+    closeChooser.addEventListener("click", () => closeChooserPanel());
+
+    document.addEventListener("keydown", (event) => {
+      const hotkey = event.ctrlKey && event.shiftKey && event.code === "Space";
+      if (hotkey) {
+        event.preventDefault();
+        setHidden(false);
+        showToast("状态栏已唤出", "当前窗口保持在桌面上");
+        return;
+      }
+
+      if (event.key === "Escape") {
+        closeChooserPanel();
+        settingsPopover.classList.remove("visible");
+      }
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!settingsPopover.contains(event.target) && event.target !== hotkeyBtn) {
+        settingsPopover.classList.remove("visible");
+      }
+      if (!chooser.contains(event.target) && !completedChip.contains(event.target)) {
+        // Keep chooser open only when explicitly interacting with it.
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      if (state.barPosition) {
+        setBarPosition(state.barPosition.x, state.barPosition.y);
+      }
+      positionChooser();
+      positionToast();
+    });
+
+    loadState();
+    renderCounts();
+    renderSessions();
+    renderChooser();
+    bar.classList.toggle("expanded", state.expanded);
+    expandBtn.textContent = state.expanded ? "▾" : "▸";
+    setHidden(state.hidden);
+    initPosition();
+    positionChooser();
+    if (state.hidden) {
+      hiddenTab.classList.add("visible");
+    }
+    if (!state.hidden) {
+      bar.style.display = "block";
+    }
+    if (state.chooserOpen) {
+      renderChooser();
+    }
+    showToast("原型已加载", "拖动、隐藏、完成选择和通知回跳已就位");
+  </script>
+</body>
+</html>

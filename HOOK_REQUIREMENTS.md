@@ -8,10 +8,10 @@
 
 - `agent-notify-hook.ps1` 读取 stdin、参数和环境变量，生成统一事件，并通过 `agent-notify emit --stdin` 转发。
 - `agent-notify emit --stdin` 读取事件 JSON，校验后用 Bearer token POST 到本地后台 `/events`。
-- `agent-notify-tray` 当前是 Axum localhost 后台，提供 `/events`、`/sessions`、`/focus/{sessionId}`，所有路由均鉴权；`serve` 会创建/更新当前用户 `智能任务通知.lnk` 和图标资源，并通过 Windows Start Menu AppID 发送中文 Toast。
+- `agent-notify-tray` 当前是 Axum localhost 后台，提供 `/events`、`/sessions`、`/focus/{sessionId}`、`/activate/{activationId}`，所有路由均鉴权；`serve` 会创建/更新当前用户 `智能任务通知.lnk`、注册 `agent-notify://` 协议和图标资源、创建原生托盘退出菜单，并通过 Windows Start Menu AppID 发送中文 Toast。
 - Hook Manager 会复制运行时 hook、生成 manifest、备份并合并 Claude/Codex 用户级配置，并把 hook 命令写成当前用户的绝对路径。
 
-当前尚未实现完整 Tauri 托盘 UI、Toast 点击 deep link、activation nonce、PID/标题 fallback、ACL 加固、备份保留清理和自动回滚恢复。
+当前尚未实现完整 Tauri 托盘管理 UI、Toast 按钮、进程树精确校验、ACL 加固、备份保留清理和自动回滚恢复。
 
 ## 项目交付文件
 
@@ -302,11 +302,11 @@ Content-Type: application/json
 
 hook 必须满足：
 
-- 总执行时间默认不超过 2 秒。
+- 管理配置中的 hook timeout 默认 5 秒，用于覆盖 PowerShell 冷启动、窗口定位和本地 emit 的正常抖动。
 - stdin 读取和 payload 解析预算 300ms。
 - `agent-notify emit` 或 HTTP 请求预算 1500ms。
 - 日志和清理预算 200ms。
-- 后台不可用时默认不重试；如果未来允许 1 次重试，也必须包含在 2 秒预算内。
+- 后台不可用时默认不重试；如果未来允许 1 次重试，也必须包含在 hook timeout 预算内。
 - hook 失败不能导致 Claude/Codex 主流程失败。
 - hook 退出码默认返回 `0`，除非用户显式开启严格模式。
 - 同一 payload 重放时必须使用稳定 `eventId`：`sha256(tool + sessionId + hookEvent + payloadStableId + sanitizedSummaryHash)`。
@@ -334,7 +334,7 @@ hook 必须满足：
 详情：默认隐藏完整命令；只显示工具名和脱敏摘要
 ```
 
-确认类通知默认只显示脱敏类别，例如 `Bash 请求执行命令，参数已隐藏`。`message.detail` 最多 160 个字符，超过必须截断。当前 Windows MVP 只展示 Toast 文本，未实现点击回调；后续点击 deep link 必须使用短期 activation nonce，不能把 Bearer token 放进 URI。“忽略/静音”放在后续 Tauri 托盘 UI 中，不在 Toast 按钮中承诺。不允许在通知里批准命令。
+确认类通知默认只显示脱敏类别，例如 `Bash 请求执行命令，参数已隐藏`。`message.detail` 最多 160 个字符，超过必须截断。当前 Windows MVP 的通知主体点击使用短期 activation nonce，不能把 Bearer token 放进 URI；后台按 HWND、PID、父 PID、窗口标题顺序 best-effort 聚焦。“忽略/静音”放在后续 Tauri 托盘 UI 中，不在 Toast 按钮中承诺。不允许在通知里批准命令。
 
 ## 安全边界
 
@@ -355,6 +355,6 @@ hook 禁止做这些事：
 2. 能生成标准事件 JSON。
 3. 能通过 `agent-notify emit --stdin` 触发后台通知。
 4. 后台离线、监听关闭或 token 无效时能静默丢弃事件。
-5. 聚焦所需的 `sessionId`、窗口标题、PID/HWND 信息能被携带；当前后台只使用 HWND。
+5. 聚焦所需的 `sessionId`、窗口标题、PID/HWND 信息能被携带；当前后台按 HWND、PID、父 PID、窗口标题顺序 best-effort 聚焦。
 6. 不会因为 hook 自身错误中断 Claude/Codex。
 7. 不会在通知中泄露完整命令或敏感内容。

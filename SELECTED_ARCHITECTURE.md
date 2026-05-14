@@ -10,7 +10,7 @@
 Codex 边界：只支持带官方 lifecycle hooks 的 Codex 最新版本
 ```
 
-当前代码实现的是该架构的后端 MVP：`agent-notify-tray` 目前是 Axum localhost 后台，负责 HTTP 事件入口、Bearer 鉴权、session 表、去重、当前用户 Start Menu AppID/图标注册、中文 Windows Toast 展示、hook 检查/修复和 HWND-only `/focus/{sessionId}`。完整 Tauri 托盘 UI、Toast 点击 deep link、activation nonce、PID/标题 fallback、session 详情页和 `agentrun` 尚未实现。
+当前代码实现的是该架构的后端 MVP：`agent-notify-tray` 目前是 Axum localhost 后台，负责 HTTP 事件入口、Bearer 鉴权、session 表、去重、当前用户 Start Menu AppID/图标注册、`agent-notify://` 协议注册、原生托盘退出入口、中文 Windows Toast 展示、Toast 主体点击 activation、hook 检查/修复和 best-effort `/focus/{sessionId}`。完整 Tauri 托盘 UI、Toast 按钮、进程树精确校验、session 详情页和 `agentrun` 尚未实现。
 
 ## 最终链路
 
@@ -24,7 +24,7 @@ agent-notify-tray 启动
   -> agent-notify emit --stdin
   -> agent-notify-tray 本地后台
   -> 系统气泡通知
-  -> 后续 Tauri/Toast 点击回调
+  -> Toast 主体点击 activation
   -> 根据 session/window/process 信息尽量唤起原终端窗口
 ```
 
@@ -39,7 +39,7 @@ Claude 使用 Claude Code hook。Codex 使用 Codex 官方 lifecycle hooks，本
 - `PostToolUse` 非零退出或阻塞信息 -> `tool.blocked` 或 `task.failed`
 - `SessionStart` -> `task.started`
 
-点击通知唤起外部终端是目标能力。当前 Toast 没有点击回调，已实现的是 Bearer 鉴权的 `POST /focus/{sessionId}`；它只在 session 携带 HWND 时尝试聚焦窗口。传统独立窗口、PID/标题 fallback 和 Windows Terminal 多 tab 降级仍需后续实现。
+点击通知唤起外部终端是目标能力。当前 Toast 主体点击使用 `agent-notify://focus?activationId=...`，协议处理子命令读取本地 token 后调用 Bearer 鉴权的 `POST /activate/{activationId}`；后台按 HWND、PID、父 PID、窗口标题顺序 best-effort 聚焦窗口。Windows Terminal 多 tab 场景只承诺唤起窗口，不承诺切到具体 tab。
 
 运行时必须自动检查 hook 状态。当前 `agent-notify-tray serve` 启动时会按配置自动审计 Claude/Codex 的用户级配置，`check-hooks` / `repair-hooks` 命令也可手动触发；Tauri UI 中的监听开关和“修复 hooks”按钮是后续入口。如果缺失、指向旧路径或版本不匹配，Hook Manager 会安装或修复本项目提供的 hook。安装过程先备份用户配置，只合并本项目命名的配置块，不覆盖用户已有的其他 hook。
 
@@ -52,8 +52,8 @@ Claude 使用 Claude Code hook。Codex 使用 Codex 官方 lifecycle hooks，本
 - Codex hooks：通过 Codex 用户级 `%USERPROFILE%\.codex\hooks.json` 或 `%USERPROFILE%\.codex\config.toml` 捕获生命周期事件，只支持当前最新版官方 hooks。
 - `agent-notify-hook.ps1`：把工具 payload、参数和环境变量转换为标准 JSON，并写入 `agent-notify emit --stdin` 子进程；不得把事件 JSON 写到 hook 自身 stdout。
 - `agent-notify emit --stdin`：把标准事件送入本地后台；默认静默丢弃失败，严格模式由 `AGENT_NOTIFY_STRICT` 开启。
-- `agent-notify-tray`：当前维护内存 session 列表、显示中文通知、接收 hook 事件、创建/更新 `智能任务通知.lnk` 和图标资源以获取 Windows Toast AppID，并提供 HWND-only focus 接口。
-- Tauri 托盘应用：后续提供常驻托盘壳、运行时监听开关、hook 健康状态、session 面板、通知点击回调和静音入口。
+- `agent-notify-tray`：当前维护内存 session 列表、显示中文通知、接收 hook 事件、创建/更新 `智能任务通知.lnk`、注册 `agent-notify://` 协议和图标资源以获取 Windows Toast AppID，创建原生托盘退出菜单，并提供 best-effort focus 接口。
+- Tauri 托盘应用：后续提供常驻托盘壳、运行时监听开关、hook 健康状态、session 面板、Toast 按钮动作和静音入口。
 - 通知内容：遵循 `NOTIFICATION_POLICY.md`，默认只展示脱敏摘要。
 
 ## Hook 自动安装策略
@@ -116,16 +116,16 @@ Hook Manager 只允许写入 `%LOCALAPPDATA%\AgentNotify\**`、`%USERPROFILE%\.c
 - 精确控制外部 Windows Terminal 的某个 tab；能唤起窗口但不能确认 tab 时只标记 best-effort。
 - 读取或恢复完整终端屏幕内容。
 - 兼容不支持官方 hooks 的旧版 Codex。
-- Windows Toast 点击回调或按钮动作。
-- 完整 Tauri 托盘 UI、运行时监听开关和 session 详情页。
+- Windows Toast 按钮动作。
+- 完整 Tauri 托盘管理 UI、运行时监听开关和 session 详情页。
 
 ## 实施顺序
 
-1. 已实现本地 HTTP 后台事件入口；Tauri 托盘应用壳待实现。
+1. 已实现本地 HTTP 后台事件入口和原生托盘退出菜单；Tauri 托盘应用壳待实现。
 2. 已实现 Hook Manager：CLI 检测、用户配置备份、hook 合并安装和修复；状态展示待 UI 接入。
 3. 已实现 `agent-notify emit --stdin` 到本地后台的通信。
 4. 已实现标准事件模型、去重、通知展示和离线丢弃策略。
-5. 已实现 HWND-only 聚焦；PID、窗口标题、进程树逐级降级待实现。
+5. 已实现 HWND、PID、父 PID、窗口标题 best-effort 聚焦；进程树精确校验待实现。
 6. 已实现 Claude hook adapter 和自动安装配置的核心路径。
 7. 已实现 Codex lifecycle hook adapter 和自动安装配置的核心路径。
 

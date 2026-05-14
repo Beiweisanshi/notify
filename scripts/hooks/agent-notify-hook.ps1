@@ -1021,28 +1021,36 @@ function New-AgentNotifyEvent {
     if ([string]::IsNullOrWhiteSpace($sessionId)) {
         $sessionIdentityParts = @($tool, $cwd)
         $hasStableIdentity = $false
-        if ($null -ne $eventPid) {
-            $sessionIdentityParts += "pid:$eventPid"
-            $hasStableIdentity = $true
-        }
-        if (-not [string]::IsNullOrWhiteSpace($startedAt)) {
-            $sessionIdentityParts += "started:$startedAt"
-            $hasStableIdentity = $true
-        }
         if (-not [string]::IsNullOrWhiteSpace($payloadTranscriptPath)) {
             $sessionIdentityParts += "transcript:$payloadTranscriptPath"
             $hasStableIdentity = $true
         }
-        if ($null -ne $hwnd -and $hwnd -ne 0) {
+        elseif ($null -ne $hwnd -and $hwnd -ne 0) {
             $sessionIdentityParts += "hwnd:$hwnd"
+            if ($null -ne $windowPid -and $windowPid -ne 0) {
+                $sessionIdentityParts += "windowPid:$windowPid"
+            }
             $hasStableIdentity = $true
         }
-        if ($null -ne $windowPid -and $windowPid -ne 0) {
+        elseif ($null -ne $windowPid -and $windowPid -ne 0) {
             $sessionIdentityParts += "windowPid:$windowPid"
             $hasStableIdentity = $true
         }
-        if (-not $hasStableIdentity -and -not [string]::IsNullOrWhiteSpace($windowTitle)) {
+        elseif (-not [string]::IsNullOrWhiteSpace($windowTitle)) {
             $sessionIdentityParts += "title:$windowTitle"
+            $hasStableIdentity = $true
+        }
+        if (-not $hasStableIdentity) {
+            if ($null -ne $parentPid -and $parentPid -ne 0) {
+                $sessionIdentityParts += "parentPid:$parentPid"
+                $hasStableIdentity = $true
+            }
+            elseif ($null -ne $eventPid) {
+                $sessionIdentityParts += "pid:$eventPid"
+                if (-not [string]::IsNullOrWhiteSpace($startedAt)) {
+                    $sessionIdentityParts += "started:$startedAt"
+                }
+            }
         }
         $sessionSeed = Get-AgentNotifyHash ($sessionIdentityParts -join '|')
         $sessionId = "$tool-$($sessionSeed.Substring(0, 16))"
@@ -1106,6 +1114,7 @@ $strictMode = (Get-AgentNotifyEnvValue 'AGENT_NOTIFY_STRICT_HOOK') -eq '1'
 try {
     $stdinText = Read-AgentNotifyStdin
     $payload = $null
+    $payloadParseFailed = $false
 
     if (-not [string]::IsNullOrWhiteSpace($stdinText)) {
         try {
@@ -1113,21 +1122,24 @@ try {
         }
         catch {
             $logCode = 'parse_failed'
+            $payloadParseFailed = $true
         }
     }
 
-    $event = New-AgentNotifyEvent -Arguments $args -Payload $payload
-    $eventTypeForLog = $event.eventType
-    $eventJson = $event | ConvertTo-Json -Depth 12 -Compress
+    if (-not $payloadParseFailed) {
+        $event = New-AgentNotifyEvent -Arguments $args -Payload $payload
+        $eventTypeForLog = $event.eventType
+        $eventJson = $event | ConvertTo-Json -Depth 12 -Compress
 
-    $timeoutMs = Get-AgentNotifyInt (Get-AgentNotifyEnvValue 'AGENT_NOTIFY_HOOK_EMIT_TIMEOUT_MS')
-    if ($null -eq $timeoutMs -or $timeoutMs -le 0 -or $timeoutMs -gt 1500) {
-        $timeoutMs = 1500
-    }
+        $timeoutMs = Get-AgentNotifyInt (Get-AgentNotifyEnvValue 'AGENT_NOTIFY_HOOK_EMIT_TIMEOUT_MS')
+        if ($null -eq $timeoutMs -or $timeoutMs -le 0 -or $timeoutMs -gt 1500) {
+            $timeoutMs = 1500
+        }
 
-    $emitCode = Invoke-AgentNotifyEmit -EventJson $eventJson -TimeoutMs $timeoutMs
-    if ($emitCode -ne 'emit_ok') {
-        $logCode = $emitCode
+        $emitCode = Invoke-AgentNotifyEmit -EventJson $eventJson -TimeoutMs $timeoutMs
+        if ($emitCode -ne 'emit_ok') {
+            $logCode = $emitCode
+        }
     }
 }
 catch {
