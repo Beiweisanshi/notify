@@ -415,14 +415,9 @@ function headerTemplate(): string {
       <div class="brand">AN</div>
       ${chipTemplate("All", summary.terminalCount, "total")}
       ${chipTemplate("Run", summary.runningCount, "running")}
-      <button class="chip completed" type="button" data-open-all title="Completed notifications">
-        <span>Done</span>
-        <strong>${summary.completedCount}</strong>
-        ${
-          summary.unopenedCompletedNotifications > 0
-            ? `<em>${summary.unopenedCompletedNotifications}</em>`
-            : ""
-        }
+      <button class="chip completed" type="button" data-open-all title="Unopened notifications">
+        <span>Alerts</span>
+        <strong>${summary.unopenedCompletedNotifications}</strong>
       </button>
       <button class="icon-button" type="button" data-toggle title="Toggle">${barState.expanded ? "^" : "v"}</button>
       <button class="icon-button" type="button" data-hide title="Hide">x</button>
@@ -448,11 +443,15 @@ function bodyTemplate(): string {
 
 function sessionListsTemplate(data: FloatingStatusSnapshot): string {
   const running = data.sessions.filter((session) => session.status === "running");
+  const waiting = data.sessions.filter((session) => session.status === "waiting_user");
   const completed = data.sessions.filter((session) => session.status === "completed");
+  const failed = data.sessions.filter((session) => session.status === "failed");
   return `
     <div class="body">
       ${sectionTemplate("Running", running, false)}
+      ${sectionTemplate("Waiting", waiting, true)}
       ${sectionTemplate("Completed", completed, true)}
+      ${sectionTemplate("Failed", failed, true)}
     </div>
   `;
 }

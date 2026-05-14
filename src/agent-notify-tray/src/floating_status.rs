@@ -253,10 +253,14 @@ pub fn build_floating_status_snapshot(
             .or_insert_with(|| (session.clone(), terminal_state));
     }
 
-    let completed_terminal_ids = latest_by_terminal
+    let actionable_terminal_ids = latest_by_terminal
         .iter()
         .filter_map(|(identity, (session, _))| {
-            (session.status == SessionStatus::Completed).then_some(identity.clone())
+            matches!(
+                session.status,
+                SessionStatus::Completed | SessionStatus::WaitingUser | SessionStatus::Failed
+            )
+            .then_some(identity.clone())
         })
         .collect::<HashSet<_>>();
 
@@ -266,7 +270,7 @@ pub fn build_floating_status_snapshot(
             notification.clicked_at.is_none()
                 && session_terminal_ids
                     .get(&notification.session_id)
-                    .is_some_and(|identity| completed_terminal_ids.contains(identity))
+                    .is_some_and(|identity| actionable_terminal_ids.contains(identity))
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -505,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_counts_only_live_completed_notifications() {
+    fn snapshot_counts_notifications_for_all_actionable_sessions() {
         let now = DateTime::parse_from_rfc3339("2026-05-11T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -532,8 +536,14 @@ mod tests {
         assert_eq!(snapshot.summary.terminal_count, 3);
         assert_eq!(snapshot.summary.running_count, 1);
         assert_eq!(snapshot.summary.completed_count, 1);
-        assert_eq!(snapshot.summary.unopened_completed_notifications, 1);
-        assert_eq!(snapshot.notifications[0].notification_id, "n1");
+        assert_eq!(snapshot.summary.unopened_completed_notifications, 2);
+        let ids: Vec<_> = snapshot
+            .notifications
+            .iter()
+            .map(|n| n.notification_id.as_str())
+            .collect();
+        assert!(ids.contains(&"n1"));
+        assert!(ids.contains(&"n-failed"));
         assert_eq!(
             snapshot
                 .sessions

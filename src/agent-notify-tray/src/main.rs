@@ -872,10 +872,7 @@ async fn notify_event(
     let Some(view) = notification_view(event) else {
         return false;
     };
-    if floating_ui_handles_notification(event.event_type)
-        && floating_notification.is_some()
-        && floating_ui_active(state).await
-    {
+    if floating_notification.is_some() && floating_ui_active(state).await {
         return true;
     }
     let activation = if cfg!(windows) {
@@ -888,10 +885,6 @@ async fn notify_event(
         remove_activation(state, &entry.id).await;
     }
     notified
-}
-
-fn floating_ui_handles_notification(event_type: EventType) -> bool {
-    event_type == EventType::TaskCompleted
 }
 
 async fn floating_ui_active(state: &AppState) -> bool {
@@ -1968,19 +1961,6 @@ mod tests {
         assert_eq!(shared.process, None);
         assert_eq!(shared_window.hwnd, Some(100));
         assert_eq!(shared_window.pid, Some(200));
-    }
-
-    #[test]
-    fn floating_ui_only_claims_completed_notifications() {
-        assert!(floating_ui_handles_notification(EventType::TaskCompleted));
-        assert!(!floating_ui_handles_notification(
-            EventType::UserConfirmationRequired
-        ));
-        assert!(!floating_ui_handles_notification(
-            EventType::UserInputRequired
-        ));
-        assert!(!floating_ui_handles_notification(EventType::TaskFailed));
-        assert!(!floating_ui_handles_notification(EventType::ToolBlocked));
     }
 
     #[test]
