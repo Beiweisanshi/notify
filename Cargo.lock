@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agent-notify"
-version = "0.1.0"
+version = "0.1.4"
 dependencies = [
  "agent-notify-core",
  "anyhow",
@@ -22,7 +22,7 @@ dependencies = [
 
 [[package]]
 name = "agent-notify-core"
-version = "0.1.0"
+version = "0.1.4"
 dependencies = [
  "chrono",
  "hex",
@@ -36,7 +36,7 @@ dependencies = [
 
 [[package]]
 name = "agent-notify-desktop"
-version = "0.1.0"
+version = "0.1.4"
 dependencies = [
  "agent-notify-core",
  "anyhow",
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "agent-notify-tray"
-version = "0.1.0"
+version = "0.1.4"
 dependencies = [
  "agent-notify-core",
  "anyhow",
@@ -1479,7 +1479,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hook-manager"
-version = "0.1.0"
+version = "0.1.4"
 dependencies = [
  "agent-notify-core",
  "chrono",
