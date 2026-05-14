@@ -1305,15 +1305,15 @@ unsafe extern "system" fn windows_tray_wnd_proc(
         }
         WM_COMMAND => {
             match wparam & 0xffff {
-                id if id == WINDOWS_TRAY_TOGGLE_BAR_ID as usize => {
+                id if id == WINDOWS_TRAY_TOGGLE_BAR_ID => {
                     toggle_floating_bar_visibility();
                     return 0;
                 }
-                id if id == WINDOWS_TRAY_OPEN_LOGS_ID as usize => {
+                id if id == WINDOWS_TRAY_OPEN_LOGS_ID => {
                     open_logs_folder();
                     return 0;
                 }
-                id if id == WINDOWS_TRAY_EXIT_ID as usize => {
+                id if id == WINDOWS_TRAY_EXIT_ID => {
                     if let Some(shutdown) = WINDOWS_TRAY_SHUTDOWN.get() {
                         shutdown.notify_waiters();
                     }
