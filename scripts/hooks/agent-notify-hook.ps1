@@ -603,11 +603,7 @@ function Get-AgentNotifyToolLabel {
 function Read-AgentNotifyStdin {
     try {
         if ([Console]::IsInputRedirected) {
-            $text = [Console]::In.ReadToEnd()
-            if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) {
-                return $text.Substring(1)
-            }
-            return $text
+            return [Console]::In.ReadToEnd().TrimStart([char]0xFEFF)
         }
     }
     catch {
