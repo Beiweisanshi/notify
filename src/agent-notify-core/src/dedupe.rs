@@ -23,6 +23,8 @@ impl DedupeCache {
     }
 
     pub fn should_emit(&mut self, event: &AgentEvent, now: Instant) -> bool {
+        self.last_state
+            .retain(|_, entry| now.duration_since(entry.at) <= self.window);
         let previous = self.last_state.insert(
             event.session_id.clone(),
             StateEntry {
@@ -30,11 +32,7 @@ impl DedupeCache {
                 at: now,
             },
         );
-        match previous {
-            None => true,
-            Some(previous) if previous.event_type != event.event_type => true,
-            Some(previous) => now.duration_since(previous.at) > self.window,
-        }
+        previous.is_none_or(|previous| previous.event_type != event.event_type)
     }
 }
 
@@ -115,5 +113,23 @@ mod tests {
             &event(EventType::TaskCompleted, "e2"),
             now + Duration::from_secs(31)
         ));
+    }
+
+    #[test]
+    fn evicts_stale_entries_so_state_does_not_grow_unbounded() {
+        let mut cache = DedupeCache::new(Duration::from_secs(30));
+        let now = Instant::now();
+
+        for index in 0..1000 {
+            let mut e = event(EventType::TaskCompleted, "e1");
+            e.session_id = format!("s{index}");
+            cache.should_emit(&e, now);
+        }
+
+        let mut later = event(EventType::TaskCompleted, "e1");
+        later.session_id = "s-later".into();
+        cache.should_emit(&later, now + Duration::from_secs(31));
+
+        assert_eq!(cache.last_state.len(), 1);
     }
 }
